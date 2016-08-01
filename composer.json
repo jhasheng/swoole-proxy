@@ -1,0 +1,16 @@
+{
+    "name": "jhasheng/ss",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "jhasheng",
+            "email": "jhasheng@hotmail.com"
+        }
+    ],
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "SS\\": "./src/"
+        }
+    }
+}

@@ -1,0 +1,23 @@
+* Rebuilt URL to: www.oschina.net/
+* Hostname was NOT found in DNS cache
+*   Trying 192.168.56.1...
+* Connected to 192.168.56.1 (192.168.56.1) port 8008 (#0)
+> GET HTTP://www.oschina.net/ HTTP/1.1
+Host: www.oschina.net
+Accept: */*
+Proxy-Connection: Keep-Alive
+
+< HTTP/1.1 200 OK
+* Server Tengine is not blacklisted
+< Server: Tengine
+< Connection: keep-alive
+< Date: Sat, 23 Jul 2016 17:27:44 GMT
+< Cache-Control: no-cache
+< Content-Type: text/html;charset=UTF-8
+< Transfer-Encoding: chunked
+< Keep-Alive: timeout=20
+< Vary: Accept-Encoding
+< Pragma: no-cache
+< X-NWS-LOG-UUID: 0a72fc88-3164-4c33-8995-c73c8dc9434e
+< 
+* Connection #0 to host 192.168.56.1 left intact
