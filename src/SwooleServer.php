@@ -25,7 +25,7 @@ class SwooleServer
 
     public function start()
     {
-        $server = new Server('0.0.0.0', 8009, SWOOLE_BASE, SWOOLE_SOCK_TCP);
+        $server = new Server('0.0.0.0', 10005, SWOOLE_BASE, SWOOLE_SOCK_TCP);
 
         $server->set([
             'max_conn'           => 500,
@@ -128,6 +128,8 @@ class SwooleServer
                 return;
             }
 
+//            var_dump($data);
+//            echo '=======' . PHP_EOL;
             $sendByteCount = $backend->append($data)->request();
             if ($sendByteCount === false) {
                 echo 'data length:', $backend->full->length, ' send byte count:', $sendByteCount, PHP_EOL;

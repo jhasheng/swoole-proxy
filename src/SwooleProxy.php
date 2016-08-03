@@ -16,11 +16,14 @@ use Swoole\Server;
 class SwooleProxy
 {
 
+    /**
+     * @var SwooleClient[]
+     */
     protected $clients = [];
 
     public function start()
     {
-        $server = new Server('0.0.0.0', 8008, SWOOLE_BASE, SWOOLE_SOCK_TCP);
+        $server = new Server('0.0.0.0', 10004, SWOOLE_BASE, SWOOLE_SOCK_TCP);
 
         $server->set([
             'max_conn'           => 500,
@@ -43,74 +46,72 @@ class SwooleProxy
 
     public function onConnect(Server $server, $fd, $fromId)
     {
-        $backend              = new Backend();
-        $backend->isConnected = true;
-        $backend->status      = Backend::STATUS_INIT;
-        $backend->full        = new Buffer();
-        $backend->startTime   = microtime();
-        $this->clients[$fd]   = $backend;
+        $client              = new SwooleClient();
+        $this->clients[$fd]   = $client;
     }
 
     public function onReceive(Server $server, $fd, $fromId, $data)
     {
-        $headers = $this->parseHeaders($data);
-        $request = explode(' ', $headers[0]);
-        $backend = $this->clients[$fd];
+        $client = $this->clients[$fd];
+        if (!$client->https) {
+            $headers = $this->parseHeaders($data);
+            if (strpos($headers[0], 'CONNECT') === 0) {
+                $client->https = true;
+                $addr = explode(':', str_replace('Host:', '', $headers[4]));
+                $client->host = trim($addr[0]);
+                $client->port = trim($addr[1]);
+                $client->status = 1;
+                $server->send($fd, "HTTP/1.1 200 Connection Established\r\n\r\n");
+                echo trim($headers[0]) . PHP_EOL;
+                return ;
+            } else {
+                $addr = explode(':', str_replace('Host:', '', $headers[1]));
+                echo trim($headers[0]) . PHP_EOL;
+                $client->host = trim($addr[0]);
+                $client->port = isset($addr[1]) ? isset($addr[1]) : 80;
+                $client->status = 1;
+            }
+        }
 
-        $that = $this;
+        if ($client->status == 1) {
+            $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
 
-        if ($request[0] != 'CONNECT') {
-            $host = trim(explode(': ', $headers[1])[1]);
-            echo $host . PHP_EOL;
-
-            $client = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
-
-            $client->on('connect', function (Client $cli) use ($client, $backend) {
+            $remote->on('connect', function(Client $cli) use ($remote, $client){
                 $cli->send(pack('C2', 0x05, 0x00));
-                $backend->status = Backend::STATUS_BIND;
-                $backend->remote = $client;
+                $client->remote = $remote;
             });
 
-            $client->on('receive', function (Client $cli, $recieved) use ($backend, $host, $data, $server, $fd, $that) {
+            $remote->on('receive', function(Client $cli, $received) use($data, $client, $server, $fd) {
                 $buffer = new Buffer();
-                $buffer->append($recieved);
-                if (Backend::STATUS_BIND == $backend->status) {
-                    $send = new Buffer();
-                    $send->append(pack('C4', 0x05, 0x02, 0x00, 0x03));
-                    $send->append(pack('C1', strlen($host)));
-//                    var_dump($that->isBigEndian());
-                    $send->append($host);
-                    $send->append(pack('C2', 0x00, 0x50));
-//                    var_dump(bin2hex($send->substr(0, -1)));
-                    if ($buffer->substr(1, 1) == 0x00) {
-                        $cli->send($send->substr(0, -1));
-                        $backend->status = Backend::STATUS_CONNECT;
-                    }
-                    $send->clear();
-                } else if (Backend::STATUS_CONNECT == $backend->status) {
-                    if ($buffer->substr(1, 1) == 0x00) {
-                        $cli->send($data);
-                        $backend->status = Backend::STATUS_COMPLETE;
-                    }
+                $buffer->append($received);
+
+                if (0x00 == $buffer->substr(1, 1) && $client->status == 1) {
+                    $client->status = 2;
                     $buffer->clear();
-                } else if (Backend::STATUS_COMPLETE == $backend->status) {
-//                    var_dump($recieved);
-                    $server->send($fd, $recieved);
+                    $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($client->host)) . $client->host . pack('n', $client->port));
+                } else if ($client->status == 2) {
+                    $cli->send($data);
+                    $client->status = 3;
+                } else if ($client->status == 3) {
+                    $server->send($fd, $received);
                 }
-
             });
-            $client->on('error', function (Client $cli) use ($server, $fd) {
+
+            $remote->on('error', function (Client $cli) use ($server, $fd) {
                 echo $cli->errCode . PHP_EOL;
-                $server->close($fd);
             });
 
-            $client->on('close', function (Client $cli) use ($server, $fd, $backend) {
+            $remote->on('close', function (Client $cli) use ($server, $fd) {
                 echo 'closed' . PHP_EOL;
-                $backend->endTime = microtime();
 //                $backend->remote = null;
             });
 
-            $client->connect('0.0.0.0', 8009, 0.1);
+            $remote->connect('0.0.0.0', 10005);
+        }
+
+
+        if ($client->status == 3 && $client->remote != null && $client->https) {
+            $client->remote->send($data);
         }
     }
 
