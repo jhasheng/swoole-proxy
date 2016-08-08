@@ -9,6 +9,7 @@
 namespace SS;
 
 
+use League\CLImate\CLImate;
 use Swoole\Buffer;
 use Swoole\Client;
 use Swoole\Server;
@@ -16,27 +17,38 @@ use Swoole\Server;
 class SwooleProxy
 {
 
+//    protected $socksAddress = '0.0.0.0:10005';
+    protected $socksAddress;
+
+    protected $socksAuth;
+
+    /**
+     * @var CLImate
+     */
+    protected $cli;
     /**
      * @var SwooleClient[]
      */
-    protected $clients = [];
+    protected $agents = [];
+    
+    protected $config = [
+        'max_conn'           => 500,
+        'daemonize'          => false,
+        'reactor_num'        => 1,
+        'worker_num'         => 1,
+        'dispatch_mode'      => 2,
+        'buffer_output_size' => 2 * 1024 * 1024,
+        'open_cpu_affinity'  => true,
+        'open_tcp_nodelay'   => true,
+        'log_file'           => __CLASS__ .'.log',
+    ];
 
-    public function start()
+    public function listen($port, $ip = '0.0.0.0')
     {
-        $server = new Server('0.0.0.0', 10004, SWOOLE_BASE, SWOOLE_SOCK_TCP);
+        $this->cli = new CLImate();
+        $server    = new Server($ip, $port, SWOOLE_BASE, SWOOLE_SOCK_TCP);
 
-        $server->set([
-            'max_conn'           => 500,
-            'daemonize'          => false,
-            'reactor_num'        => 1,
-            'worker_num'         => 1,
-            'dispatch_mode'      => 2,
-            'buffer_output_size' => 2 * 1024 * 1024,
-            'open_cpu_affinity'  => true,
-            'open_tcp_nodelay'   => true,
-            'log_file'           => 'socks5_http_server.log',
-        ]);
-
+        $server->set($this->config);
         $server->on('connect', [$this, 'onConnect']);
         $server->on('receive', [$this, 'onReceive']);
         $server->on('close', [$this, 'onClose']);
@@ -44,88 +56,110 @@ class SwooleProxy
         $server->start();
     }
 
-    public function onConnect(Server $server, $fd, $fromId)
+    public function setConfig($name, $value)
     {
-        $client              = new SwooleClient();
-        $this->clients[$fd]   = $client;
+        $this->config[$name] = $value;
     }
 
-    public function onReceive(Server $server, $fd, $fromId, $data)
+    public function setSocksServer($addr, $auth = null)
     {
-        $client = $this->clients[$fd];
-        if (!$client->https) {
-            $headers = $this->parseHeaders($data);
+        $this->socksAddress = $addr;
+        $this->socksAuth = $auth;
+    }
+
+    public function onConnect(Server $server, $fd, $fromId)
+    {
+        $agent             = new SwooleClient();
+        $this->agents[$fd] = $agent;
+    }
+
+    public function onReceive(Server $server, $fd, $fromId, $clientData)
+    {
+        $agent = $this->agents[$fd];
+        if (!$agent->https) {
+            $headers = $this->parseHeaders($clientData);
             if (strpos($headers[0], 'CONNECT') === 0) {
-                $client->https = true;
-                $addr = explode(':', str_replace('Host:', '', $headers[4]));
-                $client->host = trim($addr[0]);
-                $client->port = trim($addr[1]);
-                $client->status = 1;
+                $agent->https  = true;
+                $addr          = explode(':', str_replace('Host:', '', $headers[4]));
+                $agent->host   = trim($addr[0]);
+                $agent->port   = trim($addr[1]);
+                $agent->status = 1;
                 $server->send($fd, "HTTP/1.1 200 Connection Established\r\n\r\n");
-                echo trim($headers[0]) . PHP_EOL;
-                return ;
+                $this->cli->green($headers[0]);
+                return;
             } else {
                 $addr = explode(':', str_replace('Host:', '', $headers[1]));
-                echo trim($headers[0]) . PHP_EOL;
-                $client->host = trim($addr[0]);
-                $client->port = isset($addr[1]) ? isset($addr[1]) : 80;
-                $client->status = 1;
+                $this->cli->green($headers[0]);
+                $agent->host   = trim($addr[0]);
+                $agent->port   = isset($addr[1]) ? isset($addr[1]) : 80;
+                $agent->status = 1;
             }
         }
 
-        if ($client->status == 1) {
+        if ($agent->status == 1) {
             $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
 
-            $remote->on('connect', function(Client $cli) use ($remote, $client){
-                $cli->send(pack('C2', 0x05, 0x00));
-                $client->remote = $remote;
+            $remote->on('connect', function (Client $cli) use ($remote, $agent, $clientData) {
+                if ($this->socksAddress) {
+                    $cli->send(pack('C2', 0x05, 0x00));
+                } else {
+                    $cli->send($clientData);
+                }
+                $agent->remote = $remote;
             });
 
-            $remote->on('receive', function(Client $cli, $received) use($data, $client, $server, $fd) {
+            $remote->on('receive', function (Client $cli, $proxyData) use ($clientData, $agent, $server, $fd) {
                 $buffer = new Buffer();
-                $buffer->append($received);
-
-                if (0x00 == $buffer->substr(1, 1) && $client->status == 1) {
-                    $client->status = 2;
-                    $buffer->clear();
-                    $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($client->host)) . $client->host . pack('n', $client->port));
-                } else if ($client->status == 2) {
-                    $cli->send($data);
-                    $client->status = 3;
-                } else if ($client->status == 3) {
-                    $server->send($fd, $received);
+                $buffer->append($proxyData);
+                if (!$this->socksAddress) {
+                    $server->send($fd, $proxyData);
+                    $agent->status = 3;
+                } else {
+                    if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
+                        $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($agent->host)) . $agent->host . pack('n', $agent->port));
+                        $agent->status = 2;
+                    } else if ($agent->status == 2) {
+                        $cli->send($clientData);
+                        $agent->status = 3;
+                    } else if ($agent->status == 3) {
+                        $server->send($fd, $proxyData);
+                    }
                 }
+                $buffer->clear();
             });
 
             $remote->on('error', function (Client $cli) use ($server, $fd) {
-                echo $cli->errCode . PHP_EOL;
+                echo swoole_strerror($cli->errCode) . PHP_EOL;
+                $cli->close();
             });
 
-            $remote->on('close', function (Client $cli) use ($server, $fd) {
-                echo 'closed' . PHP_EOL;
-//                $backend->remote = null;
+            $remote->on('close', function (Client $cli) use ($server, $fd, $agent) {
+                $agent->remote = null;
             });
 
-            $remote->connect('0.0.0.0', 10005);
+            if ($this->socksAddress) {
+                list($ip, $port) = explode(':', $this->socksAddress);
+                $remote->connect($ip, $port, 1);
+            } else {
+                swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($agent, $remote) {
+                    $remote->connect($ip, $agent->port);
+                });
+            }
         }
 
-
-        if ($client->status == 3 && $client->remote != null && $client->https) {
-            $client->remote->send($data);
+        if ($agent->status == 3 && $agent->remote != null && $agent->https) {
+            $agent->remote->send($clientData);
         }
     }
 
     public function onClose(Server $server, $fd, $fromId)
     {
-
+        $this->agents[$fd]->remote && $this->agents[$fd]->remote->close();
     }
 
     protected function parseHeaders($data)
     {
         return preg_split('/\n/', $data);
-//        var_dump(strpos('\n', $data));
-//        $headers = explode('\r\n', $data);
-//        var_dump($headers);
     }
 
     protected function isBigEndian()

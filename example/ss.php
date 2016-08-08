@@ -7,14 +7,12 @@
  * Email: jhasheng@hotmail.com
  */
 
-namespace Demo;
-
-use SS\SwooleServer;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
 if (extension_loaded('swoole') && ini_get('swoole.use_namespace')) {
-    (new SwooleServer())->start();
+    $ss = new \SS\SwooleServer();
+    $ss->start();
 } else {
     exit('swoole not loaded' . PHP_EOL);
 }

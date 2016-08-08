@@ -7,7 +7,11 @@
             "email": "jhasheng@hotmail.com"
         }
     ],
-    "require": {},
+    "keywords" : ["swoole", "proxy", "http", "https", "socks5", "mitm"],
+    "require": {
+        "ext-swoole": "1.8.*",
+        "league/climate": "^3.2"
+    },
     "autoload": {
         "psr-4": {
             "SS\\": "./src/"

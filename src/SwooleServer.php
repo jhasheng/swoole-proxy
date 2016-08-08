@@ -128,8 +128,6 @@ class SwooleServer
                 return;
             }
 
-//            var_dump($data);
-//            echo '=======' . PHP_EOL;
             $sendByteCount = $backend->append($data)->request();
             if ($sendByteCount === false) {
                 echo 'data length:', $backend->full->length, ' send byte count:', $sendByteCount, PHP_EOL;
@@ -142,6 +140,7 @@ class SwooleServer
     {
         echo $fd . '==> closed' . PHP_EOL;
         $client              = $this->clients[$fd];
+        if ($client->remote) $client->remote->close();
         $client->isConnected = false;
     }
 }
