@@ -17,10 +17,17 @@ use Swoole\Server;
 class SwooleProxy
 {
 
+    const STATS_ROOT = __DIR__ . '/../stats';
 //    protected $socksAddress = '0.0.0.0:10005';
     protected $socksAddress;
 
     protected $socksAuth;
+
+    protected $supportRouter = ['/stats', '/'];
+
+    protected $host;
+
+    protected $port;
 
     /**
      * @var CLImate
@@ -40,11 +47,13 @@ class SwooleProxy
         'buffer_output_size' => 2 * 1024 * 1024,
         'open_cpu_affinity'  => true,
         'open_tcp_nodelay'   => true,
-        'log_file'           => __CLASS__ .'.log',
+//        'log_file'           => __CLASS__ .'.log',
     ];
 
     public function listen($port, $ip = '0.0.0.0')
     {
+        $this->port = $port;
+        $this->host = $ip;
         $this->cli = new CLImate();
         $server    = new Server($ip, $port, SWOOLE_BASE, SWOOLE_SOCK_TCP);
 
@@ -92,7 +101,27 @@ class SwooleProxy
                 $this->cli->green($headers[0]);
                 $agent->host   = trim($addr[0]);
                 $agent->port   = isset($addr[1]) ? isset($addr[1]) : 80;
-                $agent->status = 1;
+
+                if ($this->isFaviconRequest($headers[0])) {
+                    $data = file_get_contents(__DIR__ . '/../stats/img/favicon.ico');
+                    $server->send($fd, "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nX-Powered-By: Swoole\r\n\r\n{$data}");
+                    $server->close($fd);
+                } else if (in_array(trim($addr[0]), ['127.0.0.1', 'localhost', '192.168.56.1'])) {
+                    $path = $this->isStatRequest($headers[0]);
+                    if ($path == '/') {
+                        $fileName = '/index.html';
+                        $data = file_get_contents(realpath(self::STATS_ROOT . $fileName));
+                    } elseif ($path == '/view') {
+                        $data = json_encode($server->stats());
+                    } else {
+                        $data = file_get_contents(realpath(self::STATS_ROOT . $path));
+                    }
+
+                    $server->send($fd, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nX-Powered-By: Swoole\r\n\r\n{$data}");
+                    $server->close($fd);
+                } else {
+                    $agent->status = 1;
+                }
             }
         }
 
@@ -130,7 +159,7 @@ class SwooleProxy
 
             $remote->on('error', function (Client $cli) use ($server, $fd) {
                 echo swoole_strerror($cli->errCode) . PHP_EOL;
-                $cli->close();
+//                $cli->close();
             });
 
             $remote->on('close', function (Client $cli) use ($server, $fd, $agent) {
@@ -170,5 +199,33 @@ class SwooleProxy
             return false;
         }
         return true;
+    }
+
+    protected function isStatRequest($request)
+    {
+        list($method, $url) = explode(' ', $request);
+        $uri = parse_url($url);
+
+        if (count($uri) == 1 && in_array($uri['path'], $this->supportRouter)) {
+            return $uri['path'];
+        } else {
+            if (($method == 'GET' && in_array($uri['path'], $this->supportRouter) && $uri['port'] == $this->port)
+                || !isset($uri['host'], $uri['port'])
+            ) {
+                return $uri['path'];
+            }
+            return false;
+        }
+    }
+
+    /**
+     * icon 请求， chrome默认会有此请求
+     * @param $request
+     * @return bool
+     */
+    protected function isFaviconRequest($request)
+    {
+        list($method, $uri) = explode(' ', $request);
+        return $uri == '/favicon.ico';
     }
 }

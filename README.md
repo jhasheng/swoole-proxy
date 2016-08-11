@@ -12,6 +12,11 @@ php example/ss.php 启动socks server
 php example/proxy.php 启动代理服务器
 ```
 
+# 当前连接数图表统计
+访问地址 `http://127.0.0.1:10004`，端口为代理监听端口
+
+# 特性
+
 HTTP 代理，可独立使用，支持HTTP/HTTPS，可使用二级代理(SOCKS5)
 
 - [x] HTTP 反向代理
@@ -19,6 +24,7 @@ HTTP 代理，可独立使用，支持HTTP/HTTPS，可使用二级代理(SOCKS5)
 - [x] 二级代理(SOCKS5，TCP 版，无身份验证版)
 - [ ] MITM 中间人攻击，对 HTTPS 数据进行解密，对原理理解的不是很透彻，求高手指点
 - [ ] 控制台日志输出优化
+- [x] 添加当前链接数图表统计
 
 
 ```php
