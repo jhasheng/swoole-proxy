@@ -83,5 +83,5 @@ $(function () {
             plot.setData(series);
             plot.draw();
         });
-    }, 666);
+    }, 400);
 });

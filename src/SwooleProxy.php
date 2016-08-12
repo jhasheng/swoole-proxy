@@ -18,12 +18,20 @@ class SwooleProxy
 {
 
     const STATS_ROOT = __DIR__ . '/../stats';
+
+    const STATS_INDEX_FILE = 'index.html';
 //    protected $socksAddress = '0.0.0.0:10005';
     protected $socksAddress;
 
     protected $socksAuth;
 
-    protected $supportRouter = ['/stats', '/'];
+    protected $supportRouter = ['/view'];
+
+    protected $localAddress = [
+        '192.168.56.1',
+        '127.0.0.1',
+        'localhost'
+    ];
 
     protected $host;
 
@@ -37,16 +45,23 @@ class SwooleProxy
      * @var SwooleClient[]
      */
     protected $agents = [];
-    
+
+    /**
+     * @var \Swoole\Http\Client
+     */
+    protected $ws = null;
+
     protected $config = [
         'max_conn'           => 500,
         'daemonize'          => false,
         'reactor_num'        => 1,
         'worker_num'         => 1,
         'dispatch_mode'      => 2,
-        'buffer_output_size' => 2 * 1024 * 1024,
+        'buffer_output_size' => 3 * 1024 * 1024,
         'open_cpu_affinity'  => true,
         'open_tcp_nodelay'   => true,
+        'open_eof_check'     => true,
+        'package_eof'        => '\r\n',
 //        'log_file'           => __CLASS__ .'.log',
     ];
 
@@ -54,8 +69,8 @@ class SwooleProxy
     {
         $this->port = $port;
         $this->host = $ip;
-        $this->cli = new CLImate();
-        $server    = new Server($ip, $port, SWOOLE_BASE, SWOOLE_SOCK_TCP);
+        $this->cli  = new CLImate();
+        $server     = new Server($ip, $port, SWOOLE_BASE, SWOOLE_SOCK_TCP);
 
         $server->set($this->config);
         $server->on('connect', [$this, 'onConnect']);
@@ -73,21 +88,44 @@ class SwooleProxy
     public function setSocksServer($addr, $auth = null)
     {
         $this->socksAddress = $addr;
-        $this->socksAuth = $auth;
+        $this->socksAuth    = $auth;
     }
 
     public function onConnect(Server $server, $fd, $fromId)
     {
         $agent             = new SwooleClient();
         $this->agents[$fd] = $agent;
+        if (!$this->ws) {
+            $ws = new \Swoole\Http\Client('0.0.0.0', 10005);
+            $ws->on('connect', function(\Swoole\Http\Client $client) use($ws) {
+                $this->ws = $ws;
+            });
+            $ws->on('close', function(\Swoole\Http\Client $client) {
+                $this->ws = null;
+            });
+            $ws->on('message', function(\Swoole\Http\Client $client, $frame) {});
+
+            $ws->upgrade('/', function(\Swoole\Http\Client $client) use($ws) {
+                echo 'upgrade success' . PHP_EOL;
+                $client->push('stats');
+                $this->ws = $ws;
+            });
+
+            $ws->on('error', function (\Swoole\Http\Client $client) {
+                echo 'error';
+            });
+        }
     }
 
     public function onReceive(Server $server, $fd, $fromId, $clientData)
     {
         $agent = $this->agents[$fd];
+
         if (!$agent->https) {
             $headers = $this->parseHeaders($clientData);
+            $this->isLocalRequest($headers);
             if (strpos($headers[0], 'CONNECT') === 0) {
+                if ($this->ws) $this->ws->push($clientData);
                 $agent->https  = true;
                 $addr          = explode(':', str_replace('Host:', '', $headers[4]));
                 $agent->host   = trim($addr[0]);
@@ -99,27 +137,37 @@ class SwooleProxy
             } else {
                 $addr = explode(':', str_replace('Host:', '', $headers[1]));
                 $this->cli->green($headers[0]);
-                $agent->host   = trim($addr[0]);
-                $agent->port   = isset($addr[1]) ? isset($addr[1]) : 80;
+                $agent->host = trim($addr[0]);
+                $agent->port = isset($addr[1]) ? isset($addr[1]) : 80;
 
-                if ($this->isFaviconRequest($headers[0])) {
-                    $data = file_get_contents(__DIR__ . '/../stats/img/favicon.ico');
-                    $server->send($fd, "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nX-Powered-By: Swoole\r\n\r\n{$data}");
-                    $server->close($fd);
-                } else if (in_array(trim($addr[0]), ['127.0.0.1', 'localhost', '192.168.56.1'])) {
-                    $path = $this->isStatRequest($headers[0]);
-                    if ($path == '/') {
-                        $fileName = '/index.html';
-                        $data = file_get_contents(realpath(self::STATS_ROOT . $fileName));
-                    } elseif ($path == '/view') {
+                if ($this->isLocalRequest($headers)) {
+                    list($method, $url, $protocol) = explode(' ', trim($headers[0]));
+                    $uri = parse_url($url);
+                    if ($uri['path'] == '/') {
+                        $uri['path'] .= self::STATS_INDEX_FILE;
+                        $data = file_get_contents(self::STATS_ROOT . $uri['path']);
+                        $mime = 'text/html';
+                        $status = '200 OK';
+                    } else if (in_array($uri['path'], $this->supportRouter)) {
                         $data = json_encode($server->stats());
+                        $mime = 'application/json';
+                        $status = '200 OK';
                     } else {
-                        $data = file_get_contents(realpath(self::STATS_ROOT . $path));
+                        if (file_exists(realpath(self::STATS_ROOT . $uri['path']))) {
+                            $data   = file_get_contents(realpath(self::STATS_ROOT . $uri['path']));
+                            $mime = 'text/html';
+                            $status = '200 OK';
+                        } else {
+                            $version = swoole_version();
+                            $data    = "<center><h1>404 Not Found</h1></center><hr/><center>Swoole Server {$version}</center>";
+                            $mime = 'text/html';
+                            $status = '200 OK';
+                        }
                     }
-
-                    $server->send($fd, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nX-Powered-By: Swoole\r\n\r\n{$data}");
+                    $server->send($fd, "HTTP/1.1 {$status}\r\nContent-Type: {$mime}\r\nX-Powered-By: Swoole\r\n\r\n{$data}");
                     $server->close($fd);
                 } else {
+                    if ($this->ws) $this->ws->push($clientData);
                     $agent->status = 1;
                 }
             }
@@ -201,31 +249,23 @@ class SwooleProxy
         return true;
     }
 
-    protected function isStatRequest($request)
-    {
-        list($method, $url) = explode(' ', $request);
-        $uri = parse_url($url);
-
-        if (count($uri) == 1 && in_array($uri['path'], $this->supportRouter)) {
-            return $uri['path'];
-        } else {
-            if (($method == 'GET' && in_array($uri['path'], $this->supportRouter) && $uri['port'] == $this->port)
-                || !isset($uri['host'], $uri['port'])
-            ) {
-                return $uri['path'];
-            }
-            return false;
-        }
-    }
-
     /**
-     * icon 请求， chrome默认会有此请求
-     * @param $request
+     * 是否为内部监控请求
+     * @param $headers
      * @return bool
      */
-    protected function isFaviconRequest($request)
+    protected function isLocalRequest($headers)
     {
-        list($method, $uri) = explode(' ', $request);
-        return $uri == '/favicon.ico';
+        foreach ($headers as $header) {
+            $header = trim($header);
+            if (strpos($header, 'Host:') === 0) {
+                $addr = explode(':', str_replace('Host: ', '', $header));
+                if (count($addr) == 1) array_push($addr, 80);
+                list($domain, $port) = $addr;
+                return in_array($domain, $this->localAddress) && $port == $this->port;
+            }
+        }
+        return false;
     }
+
 }

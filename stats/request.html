@@ -1,0 +1,102 @@
+<html ng-app="ss">
+<head>
+    <title>Swoole Request</title>
+
+    <!-- 新 Bootstrap 核心 CSS 文件 -->
+    <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.5/css/bootstrap.min.css">
+
+    <!-- 可选的Bootstrap主题文件（一般不用引入） -->
+    <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.5/css/bootstrap-theme.min.css">
+
+    <link href="//cdn.bootcss.com/font-awesome/4.6.3/css/font-awesome.min.css" rel="stylesheet">
+    <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
+    <script src="./js/jquery.js"></script>
+
+    <script src="//cdn.bootcss.com/jquery-url-parser/2.3.1/purl.min.js"></script>
+    <style>
+        td {
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+    </style>
+
+    <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
+    <!--<script src="http://cdn.bootcss.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>-->
+    <!--<script type="application/javascript" src="./js/Chart.min.js"></script>-->
+    <script>
+        window.onload = function () {
+            var ws = new WebSocket('ws://192.168.56.1:10005');
+            ws.onmessage = function (receive) {
+                if (receive && receive.data) {
+                    var headers = receive.data.split(/\n/);
+                    console.log(headers);
+                    var info = headers[0].split(' ');
+                    if ($('tbody tr').size() == 50) {
+                        $('tbody tr:last').remove();
+                    }
+                    $('tbody').prepend("<tr><td>" + info[0] +
+                            "</td><td>" + info[2] +
+                            "</td><td title='" + info[1] + "'>" + info[1] +
+                            "</td></tr>");
+                }
+            }
+        }
+    </script>
+</head>
+<body>
+
+<div id="wrapper">
+
+    <div id="page-wrapper">
+        <div class="container-fluid">
+            <!-- Page Heading -->
+            <div class="row">
+                <div class="col-lg-12">
+                    <h1 class="page-header">
+                        REQUEST COLLECTION
+                        <small>Requeset</small>
+                    </h1>
+                    <ol class="breadcrumb">
+                        <li>
+                            <i class="fa fa-dashboard"></i> <a>Dashboard</a>
+                        </li>
+                        <li class="active">
+                            <i class="fa fa-file"></i> Request
+                        </li>
+                    </ol>
+                </div>
+                <div class="col-lg-12">
+                    <div class="panel panel-default">
+                        <div class="panel-heading">Server Infomation</div>
+                        <!-- /.panel-heading -->
+                        <div class="panel-body">
+                            <table class="table table-hover table-condensed" style="table-layout: fixed">
+                                <thead>
+                                <tr>
+                                    <!--<td width="6%">HEAD</td>-->
+                                    <td width="6%">HEAD</td>
+                                    <td width="10%">PROTOCOL</td>
+                                    <td>URL</td>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <!-- /.panel-body -->
+                    </div>
+                    <!-- /.panel -->
+                </div>
+
+            </div>
+            <!-- /.row -->
+        </div>
+        <!-- /.container-fluid -->
+    </div>
+    <!-- /#page-wrapper -->
+</div>
+<!-- /#wrapper -->
+
+</body>
+
+</html>

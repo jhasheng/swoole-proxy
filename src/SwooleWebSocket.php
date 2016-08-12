@@ -10,24 +10,35 @@
 namespace SS;
 
 
+use Swoole\WebSocket\Frame;
 use Swoole\WebSocket\Server;
 
 class SwooleWebSocket
 {
-    public static function start()
+    protected $statsFd = null;
+
+    public function start()
     {
         $ws = new Server('0.0.0.0', 10005);
 
         $ws->on('open', function(Server $server, $request) {
-            var_dump($request->fd);
+//            var_dump($request->fd);
         });
 
-        $ws->on('message', function(Server $server, $frame) {
-            var_dump($frame);
+        $ws->on('message', function(Server $server, Frame $frame) {
+            if (!$this->statsFd && $frame->data == 'stats') {
+                foreach ($server->connections as $connection) {
+                    if ($connection == $frame->fd) $this->statsFd = $connection;
+                }
+            }
+            foreach ($server->connections as $connection) {
+                if ($connection != $frame->fd) $server->push($connection, $frame->data);
+            }
         });
 
         $ws->on('close', function(Server $server) {
-            var_dump($server);
+//            echo json_encode($server->stats());
+//            echo PHP_EOL;
         });
 
         $ws->start();
