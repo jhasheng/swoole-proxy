@@ -8,6 +8,8 @@
     <!-- 可选的Bootstrap主题文件（一般不用引入） -->
     <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.5/css/bootstrap-theme.min.css">
 
+    <link rel="stylesheet" href="http://v3.bootcss.com/assets/css/docs.min.css">
+
     <link href="//cdn.bootcss.com/font-awesome/4.6.3/css/font-awesome.min.css" rel="stylesheet">
     <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
     <script src="./js/jquery.js"></script>
@@ -20,12 +22,16 @@
             white-space: nowrap;
             text-overflow: ellipsis;
         }
+        .bs-callout-success {
+            border-left-color: #3c763d;
+        }
     </style>
 
     <!-- 最新的 Bootstrap 核心 JavaScript 文件 -->
     <!--<script src="http://cdn.bootcss.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>-->
     <!--<script type="application/javascript" src="./js/Chart.min.js"></script>-->
     <script>
+        var index = 1;
         window.onload = function () {
             var ws = new WebSocket('ws://192.168.56.1:10005');
             ws.onmessage = function (receive) {
@@ -34,7 +40,7 @@
                         var body = JSON.parse(receive.data);
                         var headers = atob(body['header']).split(/\n/);
 
-                        if ($('tbody tr').size() == 50) {
+                        if ($('tbody tr').size() == 100) {
                             $('tbody tr:last').remove();
                         }
                         var info = headers[0].split(' ');
@@ -47,46 +53,46 @@
 
                         var code = parseInt(res[1]);
                         var length = 0;
-                        var className = 'text-active';
+                        var className = 'bs-callout bs-callout-active text-active';
                         if (code >= 200 && code < 300) {
-                            className = 'text-success';
+                            className = 'bs-callout bs-callout-success text-success';
                         } else if (code >= 300 && code < 400) {
-                            className = 'text-info';
+                            className = 'bs-callout bs-callout-info text-info';
                         } else if (code >= 400 && code < 500) {
-                            className = 'text-danger';
+                            className = 'bs-callout bs-callout-danger text-danger';
                         } else {
-                            className = 'text-warning';
+                            className = 'bs-callout bs-callout-warning text-warning';
                         }
 
 
                         for (var i in response) {
+                            if (length < 1 && code == 200) {
+                                length = body['length'];
+                                break;
+                            }
                             if (response[i].indexOf("Content-Length") == 0) {
                                 length = response[i].split(': ').pop();
                                 break;
                             }
+                            if (response[i].indexOf("Content-Type") == 0) {
+                                console.log(response[i])
+                            }
                         }
 
-                        $('tbody').prepend("<tr><td>" + head +
-                                "</td><td>" + protocol +
-                                "</td><th class='" + className + "'>" + code +
-                                "</th><td>" + url.attr('host') +
-                                "</th><td>" + body['ip'] +
-                                "</td><td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') +
-                                "</td><td>" + (length < 1024 ? length + ' B' : (length / 1024).toFixed(1)) +
-                                " KB</td></tr>");
+                        $('tbody').prepend("<tr class='" + className + "'>" +
+                                "<td>" + index + "</td>" +
+                                "<td>" + head + "</td>" +
+                                "<td>" + protocol + "</td>" +
+                                "<th>" + code + "</th>" +
+                                "<td title='" + url.attr('host') + "'>" + url.attr('host') + "</td>" +
+                                "<td>" + body['ip'] + "</td>" +
+                                "<td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') + "</td>" +
+                                "<td>" + (length < 1024 ? (length + ' B') : ((length / 1024).toFixed(1)) + " KB") + "</td>" +
+                                "</tr>");
+                        index++;
                     } catch (e) {
                         console.log(e);
                     }
-//                    var headers = receive.data.split(/\n/);
-//                    console.log(headers);
-//                    var info = headers[0].split(' ');
-//                    if ($('tbody tr').size() == 50) {
-//                        $('tbody tr:last').remove();
-//                    }
-//                    $('tbody').prepend("<tr><td>" + info[0] +
-//                            "</td><td>" + info[2] +
-//                            "</td><td title='" + info[1] + "'>" + info[1] +
-//                            "</td></tr>");
                 }
             };
 
@@ -123,17 +129,17 @@
                         <div class="panel-heading">Server Infomation</div>
                         <!-- /.panel-heading -->
                         <div class="panel-body">
-                            <table class="table table-hover table-condensed" style="table-layout: fixed">
+                            <table class="table table-hover table-condensed table-bordered" style="table-layout: fixed">
                                 <thead>
                                 <tr>
-                                    <!--<td width="6%">HEAD</td>-->
-                                    <td width="6%">Head</td>
-                                    <td width="10%">Protocol</td>
-                                    <td width="5%">Code</td>
-                                    <td width="10%">Domain</td>
-                                    <td width="12%">Server IP</td>
-                                    <td>Url</td>
-                                    <td width="5%">Size</td>
+                                    <th width="50px">#</th>
+                                    <th width="100px">Head</th>
+                                    <th width="80px">Protocol</th>
+                                    <th width="80px">Code</th>
+                                    <th width="10%">Domain</th>
+                                    <th width="12%">Server IP</th>
+                                    <th>Requeset URL</th>
+                                    <th width="80px">Size</th>
                                 </tr>
                                 </thead>
                                 <tbody></tbody>

@@ -58,8 +58,8 @@ class SwooleProxy
         'worker_num'         => 1,
         'dispatch_mode'      => 2,
         'buffer_output_size' => 3 * 1024 * 1024,
-//        'open_cpu_affinity'  => true,
-//        'open_tcp_nodelay'   => true,
+        //        'open_cpu_affinity'  => true,
+        //        'open_tcp_nodelay'   => true,
         'open_eof_check'     => true,
         'package_eof'        => '\r\n',
         'log_file'           => 'http_proxy_server.log',
@@ -97,15 +97,16 @@ class SwooleProxy
         $this->agents[$fd] = $agent;
         if (!$this->ws) {
             $ws = new \Swoole\Http\Client('0.0.0.0', 10005);
-            $ws->on('connect', function(\Swoole\Http\Client $client) use($ws) {
+            $ws->on('connect', function (\Swoole\Http\Client $client) use ($ws) {
                 $this->ws = $ws;
             });
-            $ws->on('close', function(\Swoole\Http\Client $client) {
+            $ws->on('close', function (\Swoole\Http\Client $client) {
                 $this->ws = null;
             });
-            $ws->on('message', function(\Swoole\Http\Client $client, $frame) {});
+            $ws->on('message', function (\Swoole\Http\Client $client, $frame) {
+            });
 
-            $ws->upgrade('/', function(\Swoole\Http\Client $client) use($ws) {
+            $ws->upgrade('/', function (\Swoole\Http\Client $client) use ($ws) {
                 echo 'upgrade success' . PHP_EOL;
                 $client->push('stats');
                 $this->ws = $ws;
@@ -125,7 +126,7 @@ class SwooleProxy
             $headers = $this->parseHeaders($clientData);
             $this->isLocalRequest($headers);
             if (strpos($headers[0], 'CONNECT') === 0) {
-                $agent->data['header'] = base64_encode($clientData);
+                $agent->data['header']   = base64_encode($clientData);
                 $agent->data['response'] = base64_encode("HTTP/1.1 200 Connection Established\r\n\r\n");
                 if ($this->ws) $this->ws->push(json_encode($agent->data));
                 $agent->https  = true;
@@ -138,7 +139,7 @@ class SwooleProxy
                 return;
             } else {
                 $addr = explode(':', str_replace('Host:', '', $headers[1]));
-                $this->cli->green($headers[0]);
+                $this->cli->green($this->count . $headers[0]);
                 $agent->host = trim($addr[0]);
                 $agent->port = isset($addr[1]) ? isset($addr[1]) : 80;
 
@@ -147,30 +148,30 @@ class SwooleProxy
                     $uri = parse_url($url);
                     if ($uri['path'] == '/') {
                         $uri['path'] .= self::STATS_INDEX_FILE;
-                        $data = file_get_contents(self::STATS_ROOT . $uri['path']);
-                        $mime = 'text/html';
+                        $data   = file_get_contents(self::STATS_ROOT . $uri['path']);
+                        $mime   = 'text/html';
                         $status = '200 OK';
                     } else if (in_array($uri['path'], $this->supportRouter)) {
-                        $data = json_encode($server->stats());
-                        $mime = 'application/json';
+                        $data   = json_encode($server->stats());
+                        $mime   = 'application/json';
                         $status = '200 OK';
                     } else {
                         if (file_exists(realpath(self::STATS_ROOT . $uri['path']))) {
                             $data   = file_get_contents(realpath(self::STATS_ROOT . $uri['path']));
-                            $mime = 'text/html';
+                            $mime   = 'text/html';
                             $status = '200 OK';
                         } else {
                             $version = swoole_version();
                             $data    = "<center><h1>404 Not Found</h1></center><hr/><center>Swoole Server {$version}</center>";
-                            $mime = 'text/html';
-                            $status = '200 OK';
+                            $mime    = 'text/html';
+                            $status  = '200 OK';
                         }
                     }
                     $server->send($fd, "HTTP/1.1 {$status}\r\nContent-Type: {$mime}\r\nX-Powered-By: Swoole\r\n\r\n{$data}");
                     $server->close($fd);
                 } else {
                     $agent->data['header'] = base64_encode($clientData);
-                    $agent->status = 1;
+                    $agent->status         = 1;
                 }
             }
         }
@@ -187,28 +188,43 @@ class SwooleProxy
                 $agent->remote = $remote;
             });
 
-            $remote->on('receive', function (Client $cli, $proxyData) use ($clientData, $agent, $server, $fd) {
+            $remote->on('receive', function (Client $cli, $response) use ($clientData, $agent, $server, $fd) {
                 $buffer = new Buffer();
-                $buffer->append($proxyData);
-                $agent->data['response'] .= $proxyData;
+                $agent->data['response'] .= $response;
                 if (!$this->socksAddress) {
-                    if ($agent->contentLength < 1 && !$agent->https) {
-                        foreach (preg_split('/\n/', $proxyData) as $h) {
-                            if (strpos($h, 'Content-Length') === 0) {
-                                $agent->contentLength = intval(str_replace('Content-Length: ', '', $h));
-                                break;
+                    $agent->length += strlen($response);
+                    if (!$agent->https) {
+                        if (!$agent->isChuncked) {
+                            foreach (preg_split('/\n/', $response) as $header) {
+                                if (strpos($header, 'Transfer-Encoding: ') === 0) {
+                                    $agent->isChuncked = true;
+                                    break;
+                                }
+                                if (strpos($header, '304 Not') !== false) {
+                                    $agent->code = 304;
+                                }
+                                if (strpos($header, 'Content-Length: ') === 0) {
+                                    $agent->contentLength = (int) array_pop(explode(': ', $header));
+                                    break;
+                                }
                             }
+                        } else {
+                            $buffer->append($response);
+                            $length = hexdec($buffer->substr(0, 4));
+                            if (!$agent->contentLength && $length > 0) $agent->contentLength = $length;
                         }
+//                        echo $agent->contentLength . ' => ' . $agent->length . PHP_EOL;
                     }
-                    $agent->length += strlen($proxyData);
-                    if ($agent->length >= $agent->contentLength) {
+
+                    if (304 == $agent->code || ($agent->contentLength > 0 && $agent->length >= $agent->contentLength)) {
                         $agent->data['response'] = base64_encode($agent->data['response']);
+                        $agent->data['length'] = $agent->length;
                         if ($this->ws && !$agent->https) {
                             $this->ws->push(json_encode($agent->data));
                             $agent->data = null;
                         }
                     }
-                    $server->send($fd, $proxyData);
+                    $server->send($fd, $response);
                     $agent->status = 3;
                 } else {
                     if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
@@ -218,7 +234,7 @@ class SwooleProxy
                         $cli->send($clientData);
                         $agent->status = 3;
                     } else if ($agent->status == 3) {
-                        $server->send($fd, $proxyData);
+                        $server->send($fd, $response);
                     }
                 }
                 $buffer->clear();

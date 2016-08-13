@@ -14,22 +14,14 @@ use Swoole\Client;
 
 class SwooleClient
 {
-    const HTTPS_CLIENT_HELLO = 1;
-
-    const HTTPS_SERVER_HELLO = 2;
-
-    const HTTPS_CERTIFICATE = 3;
-
-    const HTTPS_KEY_EXCHANGE = 4;
-
     public $status = 0;
-    
+
     public $https = false;
-    
+
     public $subStatus = 0;
-    
+
     public $host;
-    
+
     public $port;
 
     /**
@@ -40,8 +32,14 @@ class SwooleClient
     public $tlsConnect;
 
     public $length = 0;
-    
+
     public $contentLength = 0;
 
-    public $data = ['header' => '', 'response' => '', 'ip' => ''];
+    public $isChuncked = false;
+    
+    public $endChuncked = false;
+
+    public $code = 200;
+
+    public $data = ['header' => '', 'response' => '', 'ip' => '', 'length' => ''];
 }
