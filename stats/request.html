@@ -13,6 +13,7 @@
     <script src="./js/jquery.js"></script>
 
     <script src="//cdn.bootcss.com/jquery-url-parser/2.3.1/purl.min.js"></script>
+    <script src="//cdn.bootcss.com/Base64/1.0.0/base64.min.js"></script>
     <style>
         td {
             overflow: hidden;
@@ -29,18 +30,69 @@
             var ws = new WebSocket('ws://192.168.56.1:10005');
             ws.onmessage = function (receive) {
                 if (receive && receive.data) {
-                    var headers = receive.data.split(/\n/);
-                    console.log(headers);
-                    var info = headers[0].split(' ');
-                    if ($('tbody tr').size() == 50) {
-                        $('tbody tr:last').remove();
+                    try {
+                        var body = JSON.parse(receive.data);
+                        var headers = atob(body['header']).split(/\n/);
+
+                        if ($('tbody tr').size() == 50) {
+                            $('tbody tr:last').remove();
+                        }
+                        var info = headers[0].split(' ');
+                        var head = info[0];
+                        var protocol = info[2];
+                        var url = $.url(info[1]);
+
+                        var response = atob(body['response']).split(/\r\n/);
+                        var res = response[0].split(' ');
+
+                        var code = parseInt(res[1]);
+                        var length = 0;
+                        var className = 'text-active';
+                        if (code >= 200 && code < 300) {
+                            className = 'text-success';
+                        } else if (code >= 300 && code < 400) {
+                            className = 'text-info';
+                        } else if (code >= 400 && code < 500) {
+                            className = 'text-danger';
+                        } else {
+                            className = 'text-warning';
+                        }
+
+
+                        for (var i in response) {
+                            if (response[i].indexOf("Content-Length") == 0) {
+                                length = response[i].split(': ').pop();
+                                break;
+                            }
+                        }
+
+                        $('tbody').prepend("<tr><td>" + head +
+                                "</td><td>" + protocol +
+                                "</td><th class='" + className + "'>" + code +
+                                "</th><td>" + url.attr('host') +
+                                "</th><td>" + body['ip'] +
+                                "</td><td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') +
+                                "</td><td>" + (length < 1024 ? length + ' B' : (length / 1024).toFixed(1)) +
+                                " KB</td></tr>");
+                    } catch (e) {
+                        console.log(e);
                     }
-                    $('tbody').prepend("<tr><td>" + info[0] +
-                            "</td><td>" + info[2] +
-                            "</td><td title='" + info[1] + "'>" + info[1] +
-                            "</td></tr>");
+//                    var headers = receive.data.split(/\n/);
+//                    console.log(headers);
+//                    var info = headers[0].split(' ');
+//                    if ($('tbody tr').size() == 50) {
+//                        $('tbody tr:last').remove();
+//                    }
+//                    $('tbody').prepend("<tr><td>" + info[0] +
+//                            "</td><td>" + info[2] +
+//                            "</td><td title='" + info[1] + "'>" + info[1] +
+//                            "</td></tr>");
                 }
-            }
+            };
+
+            ws.onerror = function (err) {
+                console.log(err)
+            };
         }
     </script>
 </head>
@@ -75,9 +127,13 @@
                                 <thead>
                                 <tr>
                                     <!--<td width="6%">HEAD</td>-->
-                                    <td width="6%">HEAD</td>
-                                    <td width="10%">PROTOCOL</td>
-                                    <td>URL</td>
+                                    <td width="6%">Head</td>
+                                    <td width="10%">Protocol</td>
+                                    <td width="5%">Code</td>
+                                    <td width="10%">Domain</td>
+                                    <td width="12%">Server IP</td>
+                                    <td>Url</td>
+                                    <td width="5%">Size</td>
                                 </tr>
                                 </thead>
                                 <tbody></tbody>

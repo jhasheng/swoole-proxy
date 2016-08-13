@@ -40,4 +40,8 @@ class SwooleClient
     public $tlsConnect;
 
     public $length = 0;
+    
+    public $contentLength = 0;
+
+    public $data = ['header' => '', 'response' => '', 'ip' => ''];
 }
