@@ -22,6 +22,7 @@
             white-space: nowrap;
             text-overflow: ellipsis;
         }
+
         .bs-callout-success {
             border-left-color: #3c763d;
         }
@@ -79,16 +80,23 @@
                             }
                         }
 
-                        $('tbody').prepend("<tr class='" + className + "'>" +
+                        var html = "<tr class='" + className + "'>" +
                                 "<td>" + index + "</td>" +
                                 "<td>" + head + "</td>" +
                                 "<td>" + protocol + "</td>" +
                                 "<th>" + code + "</th>" +
-                                "<td title='" + url.attr('host') + "'>" + url.attr('host') + "</td>" +
-                                "<td>" + body['ip'] + "</td>" +
-                                "<td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') + "</td>" +
-                                "<td>" + (length < 1024 ? (length + ' B') : ((length / 1024).toFixed(1)) + " KB") + "</td>" +
-                                "</tr>");
+                                "<td title='" + url.attr('host') + "'>" + url.attr('host') + "</td>";
+                        if (head == 'CONNECT') {
+                            html += "<td colspan='3' style='text-align: center'><i class='glyphicon glyphicon-lock text-warning'></i></td>"
+                        } else {
+                            html += "<td>" + body['ip'] + "</td>" +
+                                    "<td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') + "</td>" +
+                                    "<td align='left'>" + (length < 1024 ? (length + ' B') : ((length / 1024).toFixed(1)) + " KB") + "</td>";
+                        }
+
+                        html += "</tr>";
+
+                        $('tbody').prepend(html);
                         index++;
                     } catch (e) {
                         console.log(e);
@@ -129,7 +137,7 @@
                         <div class="panel-heading">Server Infomation</div>
                         <!-- /.panel-heading -->
                         <div class="panel-body">
-                            <table class="table table-hover table-condensed table-bordered" style="table-layout: fixed">
+                            <table class="table table-hover table-condensed" style="table-layout: fixed">
                                 <thead>
                                 <tr>
                                     <th width="50px">#</th>
