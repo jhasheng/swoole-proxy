@@ -39,6 +39,11 @@ class SwooleClient
     
     public $endChuncked = false;
 
+    /**
+     * @var Client
+     */
+    public $mitmRemote = null;
+
     public $code = 200;
 
     public $data = ['header' => '', 'response' => '', 'ip' => '', 'length' => ''];

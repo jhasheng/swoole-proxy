@@ -14,7 +14,7 @@ use SS\TlsServer;
 require_once __DIR__ . '/../vendor/autoload.php';
 
 if (extension_loaded('swoole') && ini_get('swoole.use_namespace')) {
-    (new TlsServer())->listen('0.0.0.0', 9051);
+    (new TlsServer())->listen('0.0.0.0', 10005);
 } else {
     exit('swoole not loaded' . PHP_EOL);
 }

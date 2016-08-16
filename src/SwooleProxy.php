@@ -62,7 +62,7 @@ class SwooleProxy
         //        'open_tcp_nodelay'   => true,
         'open_eof_check'     => true,
         'package_eof'        => '\r\n',
-        'log_file'           => 'http_proxy_server.log',
+        'log_file'           => __DIR__ . '/../http_proxy_server.log',
     ];
 
     public function listen($port, $ip = '0.0.0.0')
@@ -128,7 +128,7 @@ class SwooleProxy
             if (strpos($headers[0], 'CONNECT') === 0) {
                 $agent->data['header']   = base64_encode($clientData);
                 $agent->data['response'] = base64_encode("HTTP/1.1 200 Connection Established\r\n\r\n");
-                if ($this->ws) $this->ws->push(json_encode($agent->data));
+//                if ($this->ws) $this->ws->push(json_encode($agent->data));
                 $agent->https  = true;
                 $addr          = explode(':', str_replace('Host:', '', $headers[4]));
                 $agent->host   = trim($addr[0]);
@@ -176,93 +176,205 @@ class SwooleProxy
             }
         }
 
-        if ($agent->status == 1) {
-            $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
+        if ($agent->https && $agent->status == 1) {
+            if (null == $agent->mitmRemote) {
+                $https = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
 
-            $remote->on('connect', function (Client $cli) use ($remote, $agent, $clientData) {
-                if ($this->socksAddress) {
-                    $cli->send(pack('C2', 0x05, 0x00));
-                } else {
+                $https->on('connect', function (Client $cli) use ($clientData, $https, $agent) {
+                    $agent->mitmRemote = $https;
+                    $buffer            = new SuperBuffer();
+                    $buffer->append($clientData);
+                    echo 'connect' . PHP_EOL;
+                    echo '=> Content-Type: ' . $type = $buffer->substr2Dec(0, 1) . PHP_EOL;
+                    echo '=> Major Version: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
+                    echo '=> Second Version: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
+                    $length = $buffer->substr2Dec(0, 2);
+                    $data   = $buffer->substr(0, $length);
+                    echo '=> Content-Length: ' . $length . PHP_EOL;
+//                    echo '=> Encrypted Data: ' . bin2hex($data) . PHP_EOL;
+                    echo '=> Last Data: ' . $buffer->length . PHP_EOL;
+                    echo '==> Handshake Protocol' . PHP_EOL;
+                    $dataBuffer = new SuperBuffer();
+                    $dataBuffer->append($data);
+                    $hsType = $dataBuffer->substr2Dec(0, 1);
+                    echo '==> Handshake Type: ' . $hsType . PHP_EOL;
+                    echo '==> Length: ' . $dataBuffer->substr2Dec(0, 3) . PHP_EOL;
+                    echo '==> Major Version: ' . $dataBuffer->substr2Dec(0, 1) . PHP_EOL;
+                    echo '==> Second Version: ' . $dataBuffer->substr2Dec(0, 1) . PHP_EOL;
+                    echo '==> Random GUT: ' . $dataBuffer->substr2Hex(0, 4) . PHP_EOL;
+                    echo '==> Random Bytes: ' . $dataBuffer->substr2Hex(0, 28) . PHP_EOL;
+                    $sidLength = $dataBuffer->substr2Dec(0, 1);
+                    echo '==> Session ID length: ' . $sidLength . PHP_EOL;
+                    if ($sidLength > 0) {
+                        echo '==> Session ID: ' . $dataBuffer->substr2Hex(0, $sidLength) . PHP_EOL;
+                    }
+                    $csLength = $dataBuffer->substr2Dec(0, 2);
+                    echo '==> Cipher Suites Length: ' . $csLength . PHP_EOL;
+                    $cs = $dataBuffer->substr2Hex(0, $csLength);
+                    $csList = [];
+                    for ($i = 0, $l = strlen($cs); $i < $l; $i += 4) {
+                        array_push($csList, substr($cs, $i, 4));
+                    }
+                    echo '==> Cipher Suites: ' . implode(' | ', $csList) . PHP_EOL;
+                    echo '==> Compression Method: ' . $dataBuffer->substr2Dec(0, $dataBuffer->substr2Dec(0, 1)) . PHP_EOL;
+                    echo '==> Extension: ' . $dataBuffer->substr(0, $dataBuffer->substr2Dec(0, 2), true) . PHP_EOL;
+
+                    echo '==> Last Data Length: ' . $dataBuffer->length . PHP_EOL;
+                    echo '======end======' . PHP_EOL;
+                    $buffer->clear();
+                    $dataBuffer->clear();
                     $cli->send($clientData);
-                }
-                $agent->remote = $remote;
-            });
-
-            $remote->on('receive', function (Client $cli, $response) use ($clientData, $agent, $server, $fd) {
-                $buffer = new Buffer();
-                $agent->data['response'] .= $response;
-                if (!$this->socksAddress) {
-                    $agent->length += strlen($response);
-                    if (!$agent->https) {
-                        if (!$agent->isChuncked) {
-                            foreach (preg_split('/\n/', $response) as $header) {
-                                if (strpos($header, 'Transfer-Encoding: ') === 0) {
-                                    $agent->isChuncked = true;
-                                    break;
-                                }
-                                if (strpos($header, '304 Not') !== false) {
-                                    $agent->code = 304;
-                                }
-                                if (strpos($header, 'Content-Length: ') === 0) {
-                                    $agent->contentLength = (int) array_pop(explode(': ', $header));
-                                    break;
-                                }
-                            }
-                        } else {
-                            $buffer->append($response);
-                            $length = hexdec($buffer->substr(0, 4));
-                            if (!$agent->contentLength && $length > 0) $agent->contentLength = $length;
-                        }
-//                        echo $agent->contentLength . ' => ' . $agent->length . PHP_EOL;
-                    }
-
-                    if (304 == $agent->code || ($agent->contentLength > 0 && $agent->length >= $agent->contentLength)) {
-                        $agent->data['response'] = base64_encode($agent->data['response']);
-                        $agent->data['length'] = $agent->length;
-                        if ($this->ws && !$agent->https) {
-                            $this->ws->push(json_encode($agent->data));
-                            $agent->data = null;
-                        }
-                    }
-                    $server->send($fd, $response);
-                    $agent->status = 3;
-                } else {
-                    if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
-                        $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($agent->host)) . $agent->host . pack('n', $agent->port));
-                        $agent->status = 2;
-                    } else if ($agent->status == 2) {
-                        $cli->send($clientData);
-                        $agent->status = 3;
-                    } else if ($agent->status == 3) {
-                        $server->send($fd, $response);
-                    }
-                }
-                $buffer->clear();
-            });
-
-            $remote->on('error', function (Client $cli) use ($server, $fd) {
-                echo swoole_strerror($cli->errCode) . PHP_EOL;
-//                $cli->close();
-            });
-
-            $remote->on('close', function (Client $cli) use ($server, $fd, $agent) {
-                $agent->remote = null;
-            });
-
-            if ($this->socksAddress) {
-                list($ip, $port) = explode(':', $this->socksAddress);
-                $remote->connect($ip, $port, 1);
-            } else {
-                swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($agent, $remote) {
-                    $agent->data['ip'] = $ip;
-                    $remote->connect($ip, $agent->port);
                 });
+                $https->on('receive', function (Client $cli, $receive) use ($clientData) {
+                    echo 'receive' . PHP_EOL;
+                    $cli->send($clientData);
+                    $buffer = new SuperBuffer();
+                    $buffer->append($receive);
+                    echo '=> Content-Type: ' . $type = $buffer->substr2Dec(0, 1) . PHP_EOL;
+                    echo '=> Major Version: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
+                    echo '=> Second Version: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
+                    $length = $buffer->substr2Dec(0, 2);
+                    $data = $buffer->substr(0, $length);
+                    echo '=> Content-Length: ' . $length . PHP_EOL;
+//                    echo '=> Encrypted Data: ' . bin2hex($data) . PHP_EOL;
+                    if ($type == 22) { // handshake
+                        echo '==> Handshake Protocol' . PHP_EOL;
+                        $dataBuffer = new SuperBuffer();
+                        $dataBuffer->append($data);
+                        $hsType = $dataBuffer->substr2Dec(0, 1);
+                        echo '==> Handshake Type: ' . $hsType . PHP_EOL;
+                        echo '==> Length: ' . $dataBuffer->substr2Dec(0, 3) . PHP_EOL;
+                        echo '==> Major Version: ' . $dataBuffer->substr2Dec(0, 1) . PHP_EOL;
+                        echo '==> Second Version: ' . $dataBuffer->substr2Dec(0, 1) . PHP_EOL;
+                        echo '==> Random GUT: ' . $dataBuffer->substr2Hex(0, 4) . PHP_EOL;
+                        echo '==> Random Bytes: ' . $dataBuffer->substr2Hex(0, 28) . PHP_EOL;
+                        echo '==> Session ID: ' . $dataBuffer->substr2Hex(0, $dataBuffer->substr2Dec(0, 1)) . PHP_EOL;
+                        if ($hsType == 2) {
+                            echo '==> Cipher Suites: ' . $dataBuffer->substr2Hex(0, 2) . PHP_EOL;
+                        } else {
+                            $cipherLength = $dataBuffer->substr2Hex(0, 2);
+                            echo '==> Cipher Suites Length: ' . $cipherLength . PHP_EOL;
+                        }
+                        echo '==> Compression Method: ' . $dataBuffer->substr2Hex(0, $dataBuffer->substr2Dec(0, 1)) . PHP_EOL;
+                        echo '==> Extensions : ' . $dataBuffer->substr2Hex(0, $dataBuffer->substr2Dec(0, 2)) . PHP_EOL;
+                        echo '==> Last Data: ' . $dataBuffer->length . PHP_EOL;
+                        $dataBuffer->clear();
+                        $buffer->clear();
+                    } else if ($type == 23) { // application data
+
+                    } else if ($type == 21) { // alert
+                        // http://www.rfc-editor.org/rfc/rfc2246.txt page 24
+                        echo '==> Alert Protocol' . PHP_EOL;
+                        echo '==> Alert level: '. $buffer->substr2Dec(0, 1) . PHP_EOL;
+                        echo '==> Alert Description: ' . $buffer->substr2Dec(0, 1) . PHP_EOL;
+
+                    } else if ($type == 20) { // change_chipher_spec
+
+                    } else {
+                        echo 'invalid type!!' . PHP_EOL;
+                    }
+                });
+                $https->on('error', function (Client $cli) {
+                    echo 'ssl error ' . swoole_strerror($cli->errCode) . PHP_EOL;
+                });
+                $https->on('close', function (Client $cli) use ($agent) {
+                    echo 'ssl closed' . PHP_EOL;
+                    $agent->mitmRemote = null;
+                });
+
+                $https->connect('0.0.0.0', 10005);
+            } else {
+                $agent->mitmRemote->send($clientData);
             }
         }
 
-        if ($agent->status == 3 && $agent->remote != null && $agent->https) {
-            $agent->remote->send($clientData);
-        }
+//        if ($agent->status == 1) {
+//            $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
+//
+//            $remote->on('connect', function (Client $cli) use ($remote, $agent, $clientData) {
+//                if ($this->socksAddress) {
+//                    $cli->send(pack('C2', 0x05, 0x00));
+//                } else {
+//                    $cli->send($clientData);
+//                }
+//                $agent->remote = $remote;
+//            });
+//
+//            $remote->on('receive', function (Client $cli, $response) use ($clientData, $agent, $server, $fd) {
+//                $buffer = new Buffer();
+//                $agent->data['response'] .= $response;
+//                if (!$this->socksAddress) {
+//                    $agent->length += strlen($response);
+//                    if (!$agent->https) {
+//                        if (!$agent->isChuncked) {
+//                            foreach (preg_split('/\n/', $response) as $header) {
+//                                if (strpos($header, 'Transfer-Encoding: ') === 0) {
+//                                    $agent->isChuncked = true;
+//                                    break;
+//                                }
+//                                if (strpos($header, '304 Not') !== false) {
+//                                    $agent->code = 304;
+//                                }
+//                                if (strpos($header, 'Content-Length: ') === 0) {
+//                                    $agent->contentLength = (int) array_pop(explode(': ', $header));
+//                                    break;
+//                                }
+//                            }
+//                        } else {
+//                            $buffer->append($response);
+//                            $length = hexdec($buffer->substr(0, 4));
+//                            if (!$agent->contentLength && $length > 0) $agent->contentLength = $length;
+//                        }
+////                        echo $agent->contentLength . ' => ' . $agent->length . PHP_EOL;
+//                    }
+//
+//                    if (304 == $agent->code || ($agent->contentLength > 0 && $agent->length >= $agent->contentLength)) {
+//                        $agent->data['response'] = base64_encode($agent->data['response']);
+//                        $agent->data['length'] = $agent->length;
+//                        if ($this->ws && !$agent->https) {
+//                            $this->ws->push(json_encode($agent->data));
+//                            $agent->data = null;
+//                        }
+//                    }
+//                    $server->send($fd, $response);
+//                    $agent->status = 3;
+//                } else {
+//                    if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
+//                        $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($agent->host)) . $agent->host . pack('n', $agent->port));
+//                        $agent->status = 2;
+//                    } else if ($agent->status == 2) {
+//                        $cli->send($clientData);
+//                        $agent->status = 3;
+//                    } else if ($agent->status == 3) {
+//                        $server->send($fd, $response);
+//                    }
+//                }
+//                $buffer->clear();
+//            });
+//
+//            $remote->on('error', function (Client $cli) use ($server, $fd) {
+//                echo swoole_strerror($cli->errCode) . PHP_EOL;
+////                $cli->close();
+//            });
+//
+//            $remote->on('close', function (Client $cli) use ($server, $fd, $agent) {
+//                $agent->remote = null;
+//            });
+//
+//            if ($this->socksAddress) {
+//                list($ip, $port) = explode(':', $this->socksAddress);
+//                $remote->connect($ip, $port, 1);
+//            } else {
+//                swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($agent, $remote) {
+//                    $agent->data['ip'] = $ip;
+//                    $remote->connect($ip, $agent->port);
+//                });
+//            }
+//        }
+//
+//        if ($agent->status == 3 && $agent->remote != null && $agent->https) {
+//            $agent->remote->send($clientData);
+//        }
     }
 
     public function onClose(Server $server, $fd, $fromId)
