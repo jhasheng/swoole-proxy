@@ -182,8 +182,8 @@ class SwooleProxy
 
                 $https->on('connect', function (Client $cli) use ($clientData, $https, $agent) {
                     $agent->mitmRemote = $https;
-                    $data = (new DecodeHandshake($clientData))->decode();
-                    print_r($data);
+//                    $data = (new DecodeHandshake($clientData))->decode();
+//                    print_r($data);
                     $cli->send($clientData);
                 });
                 $https->on('receive', function (Client $cli, $receive) use ($clientData, $server, $fd) {
@@ -191,58 +191,16 @@ class SwooleProxy
                     $buffer = new \SS\Buffer();
                     $buffer->append($receive);
                     if ($buffer->substr(0, 1, false)->toDec() == 22) {
+                        $data = (new DecodeHandshake($receive))->decode();
+                        foreach ($data as $v) {
+                            if ($v['type'] == 11) {
+//                                var_dump(openssl_x509_read($v['certificatesContent']));
+                            }
+                        }
                         $server->send($fd, $receive);
+                    } else {
+                        echo $buffer->substr(0, -1, false)->toHex() . ' => invoke' . PHP_EOL;
                     }
-//                    $buffer = new SuperBuffer();
-//                    $buffer->append($receive);
-//                    echo '=> Content-Type: ' . $type = $buffer->substr2Dec(0, 1) . PHP_EOL;
-//                    echo '=> Major Version: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
-//                    echo '=> Second Version: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
-//                    $length = $buffer->substr2Dec(0, 2);
-////                    $data   = $buffer->substr(0, $length);
-//                    echo '=> Content-Length: ' . $length . PHP_EOL;
-////                    echo '=> Encrypted Data: ' . bin2hex($data) . PHP_EOL;
-//                    if ($type == 22) { // handshake
-//                        $hsType = $buffer->substr2Dec(0, 1);
-//                        echo '==> Handshake Type: ' . $hsType . PHP_EOL;
-//                        echo '==> Length: ' . $buffer->substr2Dec(0, 3) . PHP_EOL;
-//                        if ($hsType == 4) {
-//                            echo '==> Hint: ' . $buffer->substr2Dec(0, 4) . PHP_EOL;
-//                            echo '==> Ticket: ' . $buffer->substr2Hex(0, $buffer->substr2Dec(0, 2)) . PHP_EOL;
-//                        } else {
-//                            echo '==> Major Version: ' . $buffer->substr2Dec(0, 1) . PHP_EOL;
-//                            echo '==> Second Version: ' . $buffer->substr2Dec(0, 1) . PHP_EOL;
-//                            echo '==> Random GUT: ' . $buffer->substr2Hex(0, 4) . PHP_EOL;
-//                            echo '==> Random Bytes: ' . $buffer->substr2Hex(0, 28) . PHP_EOL;
-//                            echo '==> Session ID: ' . $buffer->substr2Hex(0, $buffer->substr2Dec(0, 1)) . PHP_EOL;
-//                            if ($hsType == 1) {
-//                                echo '==> Cipher Suites: ' . $buffer->substr2Hex(0, $buffer->substr2Dec(0, 2)) . PHP_EOL;
-//                                echo '==> Compression Method: ' . $buffer->substr2Hex(0, $buffer->substr2Dec(0, 1)) . PHP_EOL;
-//                            } else {
-//                                echo '==> Cipher Suites: ' . $buffer->substr2Hex(0, 2) . PHP_EOL;
-//                                echo '==> Compression Method: ' . $buffer->substr2Hex(0, 1) . PHP_EOL;
-//                            }
-//                            echo '===> Extension: ' . $buffer->substr2Hex(0, $buffer->substr2Dec(0, 2)) . PHP_EOL;
-//                        }
-////                        echo '==> Compression Method: ' . $dataBuffer->substr2Hex(0, $dataBuffer->substr2Dec(0, 1)) . PHP_EOL;
-////                        echo '==> Extensions : ' . $dataBuffer->substr2Hex(0, $dataBuffer->substr2Dec(0, 2)) . PHP_EOL;
-//                        echo '==> Last Data: ' . $buffer->substr2Hex(0) . PHP_EOL;
-//                        $buffer->clear();
-//                        $server->send($fd, $receive);
-//                        echo '=====end======' . PHP_EOL;
-//                    } else if ($type == 23) { // application data
-//
-//                    } else if ($type == 21) { // alert
-//                        // http://www.rfc-editor.org/rfc/rfc2246.txt page 24
-//                        echo '==> Alert Protocol' . PHP_EOL;
-//                        echo '==> Alert level: ' . $buffer->substr2Dec(0, 1) . PHP_EOL;
-//                        echo '==> Alert Description: ' . $buffer->substr2Dec(0, 1) . PHP_EOL;
-//
-//                    } else if ($type == 20) { // change_chipher_spec
-//
-//                    } else {
-//                        echo 'invalid type!!' . PHP_EOL;
-//                    }
                 });
                 $https->on('error', function (Client $cli) {
                     echo 'ssl error ' . swoole_strerror($cli->errCode) . PHP_EOL;

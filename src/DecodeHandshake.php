@@ -44,7 +44,7 @@ class DecodeHandshake
                 'minor'  => $buffer->substr(0, 1)->toDec(),
                 'length' => $buffer->substr(0, 2)->toDec(),
             ];
-            echo $buffer->substr(0, -1, false)->toHex() . PHP_EOL;
+//            echo $buffer->substr(0, -1, false)->toHex() . PHP_EOL;
             /**
              * rfc5246 page 70
              * hello_request(0), client_hello(1), server_hello(2),
@@ -70,11 +70,13 @@ class DecodeHandshake
                 case 12:
                     $data = $this->handleServerExchange();
                     break;
+                case 14:
+                    $data = $this->handleServerHelloDone();
+                    break;
                 case 16:
                     $data = $this->handleClientExchange();
                     break;
                 case 13:
-                case 14:
                 case 15:
                 case 20:
                     throw new \Exception(sprintf("handshake type %d not support yet!", $handshakeType));
@@ -126,16 +128,18 @@ class DecodeHandshake
             'majorver'          => $buffer->substr(0, 1)->toDec(),
             'minorver'          => $buffer->substr(0, 1)->toDec(),
             // struct { uint32 gmt_unix_time; opaque random_bytes[28]; } Random;
-            'randomGUT'         => $buffer->substr(0, 4)->toDec(),
-            'randomBytes'       => $buffer->substr(0, 28)->toDec(),
+            'randomGUT'         => $buffer->substr(0, 4)->toHex(),
+            'randomBytes'       => $buffer->substr(0, 28)->toHex(),
             // opaque SessionID<0..32>;
             'sid'               => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toDec(),
             // uint8 CipherSuite[2];
             'cipherSuites'      => $buffer->substr(0, 2)->toHex(),
             // enum { null(0), (255) } CompressionMethod;
             'compressionMethod' => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
+
+            'extension' => $buffer->substr(0, $buffer->substr(0, 2)->toDec())->toHex(),
+            'last'      => $buffer->length
         ];
-        $buffer->clear();
         return $data;
     }
 
@@ -147,16 +151,16 @@ class DecodeHandshake
             // handshake protocol type
             'type'                => $buffer->substr(0, 1)->toDec(),
             'length'              => $buffer->substr(0, 3)->toDec(),
-            'certificatesContent' => $buffer->substr(0, $buffer->substr(0, 3)->toDec())->toHex(),
+            'certificatesContent' => $buffer->substr(0, $buffer->substr(0, 3)->toDec())->toString(),
+            'last'                => $buffer->length
         ];
-        $buffer->clear();
         return $data;
     }
 
     protected function handleServerExchange()
     {
         $buffer = $this->buffer;
-        $data = [
+        $data   = [
             'type'            => $buffer->substr(0, 1)->toDec(),
             'length'          => $buffer->substr(0, 3)->toDec(),
             'CurveType'       => $buffer->substr(0, 1)->toDec(),
@@ -164,7 +168,8 @@ class DecodeHandshake
             'Pubkey'          => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
             'Hash'            => $buffer->substr(0, 1)->toHex(),
             'Signature'       => $buffer->substr(0, 1)->toHex(),
-            'SignatureString' => $buffer->substr(0, $buffer->substr(0, 2)->toDec())->toHex()
+            'SignatureString' => $buffer->substr(0, $buffer->substr(0, 2)->toDec())->toHex(),
+            'last'            => $buffer->length
         ];
         return $data;
     }
@@ -172,10 +177,22 @@ class DecodeHandshake
     protected function handleClientExchange()
     {
         $buffer = $this->buffer;
-        $data = [
-            'type'            => $buffer->substr(0, 1)->toDec(),
-            'length'          => $buffer->substr(0, 3)->toDec(),
-            'Pubkey'          => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
+        $data   = [
+            'type'   => $buffer->substr(0, 1)->toDec(),
+            'length' => $buffer->substr(0, 3)->toDec(),
+            'Pubkey' => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
+            'last'   => $buffer->length
+        ];
+        return $data;
+    }
+
+    protected function handleServerHelloDone()
+    {
+        $buffer = $this->buffer;
+        $data   = [
+            'type'   => $buffer->substr(0, 1)->toDec(),
+            'length' => $buffer->substr(0, 3)->toDec(),
+            'last'   => $buffer->substr(0)->toHex()
         ];
         return $data;
     }
@@ -189,6 +206,7 @@ class DecodeHandshake
             'length' => $buffer->substr(0, 3)->toDec(),
             'Hint'   => $buffer->substr(0, 3)->toDec(),
             'Ticket' => $buffer->substr(0, $buffer->substr(0, 2)->toDec())->toHex(),
+            'last'   => $buffer->length
         ];
         $buffer->clear();
         return $data;

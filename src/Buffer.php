@@ -31,4 +31,12 @@ class Buffer extends BaseBuffer
     {
         return hexdec($this->toHex());
     }
+
+    /**
+     * @return string
+     */
+    public function toString()
+    {
+        return $this->tmp;
+    }
 }
