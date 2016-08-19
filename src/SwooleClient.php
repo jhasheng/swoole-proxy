@@ -44,7 +44,16 @@ class SwooleClient
      */
     public $mitmRemote = null;
 
+    public $isConnectMitm = false;
+
     public $code = 200;
 
     public $data = ['header' => '', 'response' => '', 'ip' => '', 'length' => ''];
+
+    public function connectMitm()
+    {
+        if ($this->mitmRemote && !$this->isConnectMitm) {
+            $this->mitmRemote->connect('0.0.0.0', 10005);
+        }
+    }
 }

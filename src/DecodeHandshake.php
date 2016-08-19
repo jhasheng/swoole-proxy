@@ -44,7 +44,15 @@ class DecodeHandshake
                 'minor'  => $buffer->substr(0, 1)->toDec(),
                 'length' => $buffer->substr(0, 2)->toDec(),
             ];
-//            echo $buffer->substr(0, -1, false)->toHex() . PHP_EOL;
+
+            if (!in_array($main['type'], [20, 21, 22, 23])) {
+                $data = ['title' => 'invalid type => ' . $main['type'], '_' => $buffer->substr(0, -1)->toHex()];
+                $data['main'] = $main;
+                $decodeData[] = $data;
+                return $decodeData;
+            }
+
+//            echo $buffer->substr(0, 1, false)->toDec() . PHP_EOL;
             /**
              * rfc5246 page 70
              * hello_request(0), client_hello(1), server_hello(2),
@@ -56,7 +64,11 @@ class DecodeHandshake
             $handshakeType = $buffer->substr(0, 1, false)->toDec();
             switch ($handshakeType) {
                 case 1:
-                    $data = $this->handleClientHello();
+                    if ($main['type'] == 20) {
+                        $data = $this->handleChangeCipherSpec();
+                    } else {
+                        $data = $this->handleClientHello();
+                    }
                     break;
                 case 2:
                     $data = $this->handleServerHello();
@@ -79,9 +91,8 @@ class DecodeHandshake
                 case 13:
                 case 15:
                 case 20:
-                    throw new \Exception(sprintf("handshake type %d not support yet!", $handshakeType));
                 default:
-                    throw new \Exception(sprintf("handshake type %d is invalid!", $handshakeType));
+                    $data = $this->handleUnknow();
             }
             $data['main'] = $main;
             $decodeData[] = $data;
@@ -95,6 +106,7 @@ class DecodeHandshake
         $buffer = $this->buffer;
         $data   = [
             // handshake protocol type
+            'title'             => 'client hello',
             'type'              => $buffer->substr(0, 1)->toDec(),
             'length'            => $buffer->substr(0, 3)->toDec(),
             // version
@@ -121,6 +133,7 @@ class DecodeHandshake
         // page 40
         $buffer = $this->buffer;
         $data   = [
+            'title'             => 'server hello',
             // handshake protocol type
             'type'              => $buffer->substr(0, 1)->toDec(),
             'length'            => $buffer->substr(0, 3)->toDec(),
@@ -148,10 +161,11 @@ class DecodeHandshake
         // page 40
         $buffer = $this->buffer;
         $data   = [
+            'title'               => 'ceritficate',
             // handshake protocol type
             'type'                => $buffer->substr(0, 1)->toDec(),
             'length'              => $buffer->substr(0, 3)->toDec(),
-            'certificatesContent' => $buffer->substr(0, $buffer->substr(0, 3)->toDec())->toString(),
+            'certificatesContent' => $this->parseCertificateChian($buffer->substr(0, $buffer->substr(0, 3)->toDec())->toString()),
             'last'                => $buffer->length
         ];
         return $data;
@@ -160,14 +174,16 @@ class DecodeHandshake
     protected function handleServerExchange()
     {
         $buffer = $this->buffer;
-        $data   = [
+        $data = [
+            'title'           => 'server key exchange',
             'type'            => $buffer->substr(0, 1)->toDec(),
             'length'          => $buffer->substr(0, 3)->toDec(),
             'CurveType'       => $buffer->substr(0, 1)->toDec(),
             'Name'            => $buffer->substr(0, 2)->toHex(),
+            'KeyL'            => $buffer->substr(0, 1, false)->toDec(),
             'Pubkey'          => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
-            'Hash'            => $buffer->substr(0, 1)->toHex(),
-            'Signature'       => $buffer->substr(0, 1)->toHex(),
+//            'Signature'       => $buffer->substr(0, 2)->toHex(),
+            'SignLenth'       => $buffer->substr(0, 2, false)->toHex(),
             'SignatureString' => $buffer->substr(0, $buffer->substr(0, 2)->toDec())->toHex(),
             'last'            => $buffer->length
         ];
@@ -178,6 +194,7 @@ class DecodeHandshake
     {
         $buffer = $this->buffer;
         $data   = [
+            'title'  => 'client key exchange',
             'type'   => $buffer->substr(0, 1)->toDec(),
             'length' => $buffer->substr(0, 3)->toDec(),
             'Pubkey' => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
@@ -190,9 +207,10 @@ class DecodeHandshake
     {
         $buffer = $this->buffer;
         $data   = [
+            'title'  => 'server hello done',
             'type'   => $buffer->substr(0, 1)->toDec(),
             'length' => $buffer->substr(0, 3)->toDec(),
-            'last'   => $buffer->substr(0)->toHex()
+            'last'      => $buffer->length
         ];
         return $data;
     }
@@ -202,13 +220,36 @@ class DecodeHandshake
         $buffer = $this->buffer;
 
         $data = [
+            'title'  => 'ticket',
             'type'   => $buffer->substr(0, 1)->toDec(),
             'length' => $buffer->substr(0, 3)->toDec(),
-            'Hint'   => $buffer->substr(0, 3)->toDec(),
+            'Hint'   => $buffer->substr(0, 4)->toDec(),
             'Ticket' => $buffer->substr(0, $buffer->substr(0, 2)->toDec())->toHex(),
             'last'   => $buffer->length
         ];
-        $buffer->clear();
+        return $data;
+    }
+
+    protected function handleChangeCipherSpec()
+    {
+        $buffer = $this->buffer;
+        $data = [
+            'title'  => 'change cipher spec',
+            '_'   => $buffer->substr(0, 1)->toDec(),
+            'last'      => $buffer->length,
+            'last_data' => $buffer->substr(0, -1, false)->toHex()
+        ];
+        return $data;
+    }
+
+    protected function handleUnknow()
+    {
+        $buffer = $this->buffer;
+        $data = [
+            'title'  => 'unknow',
+            '_'   => $buffer->substr(0, $buffer->length)->toHex(),
+            'last' => $buffer->length
+        ];
         return $data;
     }
 
@@ -216,7 +257,6 @@ class DecodeHandshake
     {
 
     }
-
 
     protected function substr($offset, $length, $dec = true)
     {
@@ -231,4 +271,21 @@ class DecodeHandshake
         return $this->buffer->length == 0;
     }
 
+    protected function der2pem($data)
+    {
+        return sprintf("-----BEGIN CERTIFICATE-----\n%s-----END CERTIFICATE-----\n", chunk_split(base64_encode($data), 64, "\n"));
+    }
+
+    protected function parseCertificateChian($cert)
+    {
+        $buffer = new Buffer();
+        $buffer->append($cert);
+        $certs = [];
+        while ($buffer->length > 0) {
+            $content = $buffer->substr(0, $buffer->substr(0, 3)->toDec())->toString();
+//            var_dump(openssl_x509_parse($this->der2pem($content)));
+            array_push($certs, base64_encode($content));
+        }
+        return $certs;
+    }
 }

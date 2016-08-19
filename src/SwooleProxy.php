@@ -182,24 +182,34 @@ class SwooleProxy
 
                 $https->on('connect', function (Client $cli) use ($clientData, $https, $agent) {
                     $agent->mitmRemote = $https;
-//                    $data = (new DecodeHandshake($clientData))->decode();
-//                    print_r($data);
+                    $agent->isConnectMitm = true;
+                    $data = (new DecodeHandshake($clientData))->decode();
+                    foreach ($data as $v) {
+                        echo '==> ' . $v['title'] . PHP_EOL;
+                    }
                     $cli->send($clientData);
                 });
-                $https->on('receive', function (Client $cli, $receive) use ($clientData, $server, $fd) {
-                    $cli->send($clientData);
+                $https->on('receive', function (Client $cli, $receive) use ($clientData, $server, $fd, $agent) {
                     $buffer = new \SS\Buffer();
                     $buffer->append($receive);
-                    if ($buffer->substr(0, 1, false)->toDec() == 22) {
+                    $type = $buffer->substr(0, 1, false)->toDec();
+                    if ($type == 22) {
+//                        $cli->send($clientData);
                         $data = (new DecodeHandshake($receive))->decode();
                         foreach ($data as $v) {
-                            if ($v['type'] == 11) {
-//                                var_dump(openssl_x509_read($v['certificatesContent']));
-                            }
+                            echo '<== ' . $v['title'] . PHP_EOL;
                         }
                         $server->send($fd, $receive);
+                        $agent->status = 3;
+                    } else if ($type == 21){
+                        echo '==> Alert: ' . $buffer->substr(0, 1)->toDec() . PHP_EOL;
+                        echo '==> Major Ver.:' .  $buffer->substr(0, 1)->toDec() . PHP_EOL;
+                        echo '==> Minor Ver.:' .  $buffer->substr(0, 1)->toDec() . PHP_EOL;
+                        echo '==> Length:' . $buffer->substr(0, 2)->toDec() . PHP_EOL;
+                        echo '==> Level:' . $buffer->substr(0, 1)->toDec() . PHP_EOL;
+                        echo '==> Desc.:' . $buffer->substr(0)->toDec() . PHP_EOL;
                     } else {
-                        echo $buffer->substr(0, -1, false)->toHex() . ' => invoke' . PHP_EOL;
+                        echo 'not support yet!';
                     }
                 });
                 $https->on('error', function (Client $cli) {
@@ -210,99 +220,105 @@ class SwooleProxy
                     $agent->mitmRemote = null;
                 });
 
-                $https->connect('0.0.0.0', 10005);
+                $agent->mitmRemote = $https;
             } else {
-                $agent->mitmRemote->send($clientData);
+//                $agent->mitmRemote->send($clientData);
             }
         }
 
-//        if ($agent->status == 1) {
-//            $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
-//
-//            $remote->on('connect', function (Client $cli) use ($remote, $agent, $clientData) {
-//                if ($this->socksAddress) {
-//                    $cli->send(pack('C2', 0x05, 0x00));
-//                } else {
-//                    $cli->send($clientData);
-//                }
-//                $agent->remote = $remote;
-//            });
-//
-//            $remote->on('receive', function (Client $cli, $response) use ($clientData, $agent, $server, $fd) {
-//                $buffer = new Buffer();
-//                $agent->data['response'] .= $response;
-//                if (!$this->socksAddress) {
-//                    $agent->length += strlen($response);
-//                    if (!$agent->https) {
-//                        if (!$agent->isChuncked) {
-//                            foreach (preg_split('/\n/', $response) as $header) {
-//                                if (strpos($header, 'Transfer-Encoding: ') === 0) {
-//                                    $agent->isChuncked = true;
-//                                    break;
-//                                }
-//                                if (strpos($header, '304 Not') !== false) {
-//                                    $agent->code = 304;
-//                                }
-//                                if (strpos($header, 'Content-Length: ') === 0) {
-//                                    $agent->contentLength = (int) array_pop(explode(': ', $header));
-//                                    break;
-//                                }
-//                            }
-//                        } else {
-//                            $buffer->append($response);
-//                            $length = hexdec($buffer->substr(0, 4));
-//                            if (!$agent->contentLength && $length > 0) $agent->contentLength = $length;
-//                        }
-////                        echo $agent->contentLength . ' => ' . $agent->length . PHP_EOL;
-//                    }
-//
-//                    if (304 == $agent->code || ($agent->contentLength > 0 && $agent->length >= $agent->contentLength)) {
-//                        $agent->data['response'] = base64_encode($agent->data['response']);
-//                        $agent->data['length'] = $agent->length;
-//                        if ($this->ws && !$agent->https) {
-//                            $this->ws->push(json_encode($agent->data));
-//                            $agent->data = null;
-//                        }
-//                    }
-//                    $server->send($fd, $response);
-//                    $agent->status = 3;
-//                } else {
-//                    if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
-//                        $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($agent->host)) . $agent->host . pack('n', $agent->port));
-//                        $agent->status = 2;
-//                    } else if ($agent->status == 2) {
+        if ($agent->status == 1) {
+            $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
+
+            $remote->on('connect', function (Client $cli) use ($remote, $agent, $clientData) {
+                if ($this->socksAddress) {
+                    $cli->send(pack('C2', 0x05, 0x00));
+                } else {
+                    if (!$agent->https) {
+                        $cli->send($clientData);
+                    } else {
+                        if(!$agent->isConnectMitm) $agent->mitmRemote->connect('0.0.0.0', 10005);
 //                        $cli->send($clientData);
-//                        $agent->status = 3;
-//                    } else if ($agent->status == 3) {
-//                        $server->send($fd, $response);
-//                    }
-//                }
-//                $buffer->clear();
-//            });
-//
-//            $remote->on('error', function (Client $cli) use ($server, $fd) {
-//                echo swoole_strerror($cli->errCode) . PHP_EOL;
-////                $cli->close();
-//            });
-//
-//            $remote->on('close', function (Client $cli) use ($server, $fd, $agent) {
-//                $agent->remote = null;
-//            });
-//
-//            if ($this->socksAddress) {
-//                list($ip, $port) = explode(':', $this->socksAddress);
-//                $remote->connect($ip, $port, 1);
-//            } else {
-//                swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($agent, $remote) {
-//                    $agent->data['ip'] = $ip;
-//                    $remote->connect($ip, $agent->port);
-//                });
-//            }
-//        }
-//
-//        if ($agent->status == 3 && $agent->remote != null && $agent->https) {
-//            $agent->remote->send($clientData);
-//        }
+                    }
+                }
+                $agent->remote = $remote;
+            });
+
+            $remote->on('receive', function (Client $cli, $response) use ($clientData, $agent, $server, $fd) {
+                $buffer = new Buffer();
+                $agent->data['response'] .= $response;
+                if (!$this->socksAddress) {
+                    $agent->length += strlen($response);
+                    if (!$agent->https) {
+                        if (!$agent->isChuncked) {
+                            foreach (preg_split('/\n/', $response) as $header) {
+                                if (strpos($header, 'Transfer-Encoding: ') === 0) {
+                                    $agent->isChuncked = true;
+                                    break;
+                                }
+                                if (strpos($header, '304 Not') !== false) {
+                                    $agent->code = 304;
+                                }
+                                if (strpos($header, 'Content-Length: ') === 0) {
+                                    $agent->contentLength = (int) array_pop(explode(': ', $header));
+                                    break;
+                                }
+                            }
+                        } else {
+                            $buffer->append($response);
+                            $length = hexdec($buffer->substr(0, 4));
+                            if (!$agent->contentLength && $length > 0) $agent->contentLength = $length;
+                        }
+                    }
+
+                    if (304 == $agent->code || ($agent->contentLength > 0 && $agent->length >= $agent->contentLength)) {
+                        $agent->data['response'] = base64_encode($agent->data['response']);
+                        $agent->data['length'] = $agent->length;
+                        if ($this->ws && !$agent->https) {
+                            $this->ws->push(json_encode($agent->data));
+                            $agent->data = null;
+                        }
+                    }
+                    $server->send($fd, $response);
+                    $agent->status = 3;
+                } else {
+                    if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
+                        $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($agent->host)) . $agent->host . pack('n', $agent->port));
+                        $agent->status = 2;
+                    } else if ($agent->status == 2) {
+                        $cli->send($clientData);
+                        $agent->status = 3;
+                    } else if ($agent->status == 3) {
+                        $server->send($fd, $response);
+                    }
+                }
+                $buffer->clear();
+            });
+
+            $remote->on('error', function (Client $cli) use ($server, $fd) {
+                echo swoole_strerror($cli->errCode) . PHP_EOL;
+//                $cli->close();
+            });
+
+            $remote->on('close', function (Client $cli) use ($server, $fd, $agent) {
+                $agent->remote = null;
+            });
+
+            if ($this->socksAddress) {
+                list($ip, $port) = explode(':', $this->socksAddress);
+                $remote->connect($ip, $port, 1);
+            } else {
+                swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($agent, $remote) {
+                    $agent->data['ip'] = $ip;
+                    $remote->connect($ip, $agent->port);
+                });
+            }
+        }
+        if ($agent->status == 3 && $agent->remote != null && $agent->https) {
+            $agent->mitmRemote->send($clientData);
+//            print_r((new DecodeHandshake($clientData))->decode());
+//            echo 'invoke';
+            $agent->remote->send($clientData);
+        }
     }
 
     public function onClose(Server $server, $fd, $fromId)

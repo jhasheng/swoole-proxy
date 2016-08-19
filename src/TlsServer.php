@@ -28,7 +28,7 @@ class TlsServer
         'log_file'           => __DIR__ . '/../https_server.log',
         'ssl_cert_file'      => __DIR__ . '/../cert/ca.crt',
         'ssl_key_file'       => __DIR__ . '/../cert/ca.key',
-//        'ssl_method'         => SWOOLE_TLSv1_METHOD,
+        'ssl_method'         => SWOOLE_TLSv1_METHOD,
 //        'ssl_ciphers'        => ''
     ];
 
