@@ -26,8 +26,8 @@ class TlsServer
 //        'open_cpu_affinity'  => true,
 //        'open_tcp_nodelay'   => true,
         'log_file'           => __DIR__ . '/../https_server.log',
-        'ssl_cert_file'      => __DIR__ . '/../cert/ca.crt',
-        'ssl_key_file'       => __DIR__ . '/../cert/ca.key',
+        'ssl_cert_file'      => __DIR__ . '/../cert/server.crt',
+        'ssl_key_file'       => __DIR__ . '/../cert/server.key',
         'ssl_method'         => SWOOLE_TLSv1_METHOD,
 //        'ssl_ciphers'        => ''
     ];

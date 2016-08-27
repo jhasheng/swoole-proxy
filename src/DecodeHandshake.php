@@ -32,6 +32,7 @@ class DecodeHandshake
     public function decode()
     {
         $decodeData = [];
+        $sn = 0;
         while (!$this->isLast()) {
             $buffer = $this->buffer;
             $main   = [
@@ -45,9 +46,34 @@ class DecodeHandshake
                 'length' => $buffer->substr(0, 2)->toDec(),
             ];
 
-            if (!in_array($main['type'], [20, 21, 22, 23])) {
+            if ($main['type'] == 23) {
+                $data = [
+                    'title' => 'application data',
+                    'data' => $buffer->substr(0, $main['length'])->toHex()
+                ];
+                $data['main'] = $main;
+                $data['sn'] = $sn;
+                $decodeData[] = $data;
+                $sn++;
+                continue;
+            }
+
+            if ($main['type'] == 20) {
+                $data = [
+                    'title' => 'change chipher spec',
+                    'data' => $buffer->substr(0, $main['length'])->toHex()
+                ];
+                $data['main'] = $main;
+                $data['sn'] = $sn;
+                $decodeData[] = $data;
+                $sn++;
+                continue;
+            }
+
+            if (!in_array($main['type'], [21, 22])) {
                 $data = ['title' => 'invalid type => ' . $main['type'], '_' => $buffer->substr(0, -1)->toHex()];
                 $data['main'] = $main;
+                $data['sn'] = $sn;
                 $decodeData[] = $data;
                 return $decodeData;
             }
@@ -63,12 +89,11 @@ class DecodeHandshake
              */
             $handshakeType = $buffer->substr(0, 1, false)->toDec();
             switch ($handshakeType) {
+                case 0:
+                    $data = $this->handleHelloRequest();
+                    break;
                 case 1:
-                    if ($main['type'] == 20) {
-                        $data = $this->handleChangeCipherSpec();
-                    } else {
-                        $data = $this->handleClientHello();
-                    }
+                    $data = $this->handleClientHello();
                     break;
                 case 2:
                     $data = $this->handleServerHello();
@@ -95,11 +120,24 @@ class DecodeHandshake
                     $data = $this->handleUnknow();
             }
             $data['main'] = $main;
+            $data['sn'] = $sn;
             $decodeData[] = $data;
+            $sn++;
         }
         return $decodeData;
     }
 
+    protected function handleHelloRequest()
+    {
+        $buffer = $this->buffer;
+        $data   = [
+            'title'  => 'hello request',
+            'type'   => $buffer->substr(0, 1)->toDec(),
+            'length' => $buffer->substr(0, 3)->toDec(),
+            'last'   => $buffer->substr(0, -1)->toHex()
+        ];
+        return $data;
+    }
     protected function handleClientHello()
     {
         // page 40
@@ -196,8 +234,9 @@ class DecodeHandshake
         $data   = [
             'title'  => 'client key exchange',
             'type'   => $buffer->substr(0, 1)->toDec(),
-            'length' => $buffer->substr(0, 3)->toDec(),
-            'Pubkey' => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
+            'data'   => $buffer->substr(0, $buffer->substr(0, 3)->toDec())->toHex(),
+//            'length' => $buffer->substr(0, 3)->toDec(),
+//            'Pubkey' => $buffer->substr(0, $buffer->substr(0, 1)->toDec())->toHex(),
             'last'   => $buffer->length
         ];
         return $data;
@@ -235,7 +274,7 @@ class DecodeHandshake
         $buffer = $this->buffer;
         $data = [
             'title'  => 'change cipher spec',
-            '_'   => $buffer->substr(0, 1)->toDec(),
+            'data'   => $buffer->substr(0, 1)->toDec(),
             'last'      => $buffer->length,
             'last_data' => $buffer->substr(0, -1, false)->toHex()
         ];

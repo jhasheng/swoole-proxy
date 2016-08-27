@@ -42,7 +42,7 @@ class SwooleClient
     /**
      * @var Client
      */
-    public $mitmRemote = null;
+    public $mitm = null;
 
     public $isConnectMitm = false;
 
@@ -52,8 +52,8 @@ class SwooleClient
 
     public function connectMitm()
     {
-        if ($this->mitmRemote && !$this->isConnectMitm) {
-            $this->mitmRemote->connect('0.0.0.0', 10005);
+        if ($this->mitm && !$this->isConnectMitm) {
+            $this->mitm->connect('0.0.0.0', 10005);
         }
     }
 }
