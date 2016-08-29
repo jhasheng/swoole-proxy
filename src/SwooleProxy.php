@@ -155,6 +155,7 @@ class SwooleProxy
         /** @var $server \Swoole\Server */
         list($server, $fd, $receive) = func_get_args();
         $agent = $this->agents[$fd];
+        $agent->data['url'] = explode(' ', $receive)[1];
         if (!$agent->remote) {
             $remote = new Client(SWOOLE_TCP, SWOOLE_SOCK_ASYNC);
             $remote->on('connect', function (Client $cli) use ($remote, $agent, $receive) {
@@ -167,22 +168,12 @@ class SwooleProxy
             });
 
             $remote->on('receive', function (Client $cli, $response) use ($receive, $agent, $server, $fd) {
-                $buffer = new Buffer();
-                if (!$this->socksAddress) {
-                    $server->send($fd, $response);
-                    $agent->status = 3;
-                } else {
-                    if (0x00 == $buffer->substr(1, 1) && $agent->status == 1) {
-                        $cli->send(pack('C5', 0x05, 0x02, 0x00, 0x03, strlen($agent->host)) . $agent->host . pack('n', $agent->port));
-                        $agent->status = 2;
-                    } else if ($agent->status == 2) {
-                        $cli->send($receive);
-                        $agent->status = 3;
-                    } else if ($agent->status == 3) {
-                        $server->send($fd, $response);
-                    }
+                if (!$agent->https && !$agent->data['status']) {
+                    preg_match('/\d{3}/', $response, $matches);
+                    $agent->data['status'] = $matches[0];
+                    $this->logger($agent);
                 }
-                $buffer->clear();
+                $server->send($fd, $response);
             });
 
             $remote->on('error', function (Client $cli) use ($server, $fd) {
@@ -202,6 +193,7 @@ class SwooleProxy
                 });
             }
         } else {
+            $this->logger($agent);
             $agent->remote->send($receive);
         }
     }
@@ -215,14 +207,15 @@ class SwooleProxy
             if (strpos($headers[0], 'CONNECT') === 0) {
 //                if ($this->ws) $this->ws->push(json_encode($agent->data));
                 $addr          = $this->getHeader('Host', $receive);
+                $agent->data['url'] = $addr;
+                $agent->data['status'] = 'HTTPS';
                 $agent->https  = true;
                 list($agent->host, $agent->port) = explode(':', $addr);
+                $this->logger($agent);
                 $server->send($fd, "HTTP/1.1 200 Connection Established\r\n\r\n");
-                $this->cli->green($headers[0]);
                 return;
             } else {
                 $addr = explode(':', str_replace('Host:', '', $headers[1]));
-                $this->cli->green($headers[0]);
                 $agent->host = trim($addr[0]);
                 $agent->port = isset($addr[1]) ? isset($addr[1]) : 80;
 
@@ -260,6 +253,28 @@ class SwooleProxy
             return false;
         }
         return true;
+    }
+
+    protected function logger(SwooleClient $agent)
+    {
+        $status = $agent->data['status'];
+        if ($status == 'HTTPS' && $agent->https) {
+            $this->cli->backgroundYellow($status . ' <= ' . $agent->data['url']);
+        } else {
+            if ($status < 200) {
+                $this->cli->white($status . ' <= ' . $agent->data['url']);
+            } else if ($status >= 200 && $status < 300) {
+                $this->cli->green($status . ' <= ' . $agent->data['url']);
+            } else if ($status >= 300 && $status < 400) {
+                $this->cli->backgroundDarkGray($status . ' <= ' . $agent->data['url']);
+            } else if ($status >= 400 && $status < 500) {
+                $this->cli->red($status . ' <= ' . $agent->data['url']);
+            } else if ($status >= 500) {
+                $this->cli->yellow($status . ' <= ' . $agent->data['url']);
+            } else {
+                $this->cli->backgroundCyan($status . ' <= ' . $agent->data['url']);
+            }
+        }
     }
 
     /**

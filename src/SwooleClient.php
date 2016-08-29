@@ -36,10 +36,13 @@ class SwooleClient
     public $contentLength = 0;
 
     public $isChuncked = false;
-    
+
     public $endChuncked = false;
 
     public $code = 200;
 
-    public $data = ['header' => '', 'response' => '', 'ip' => '', 'length' => ''];
+    public $data = [
+        'url' => '',
+        'status' => 0,
+    ];
 }
