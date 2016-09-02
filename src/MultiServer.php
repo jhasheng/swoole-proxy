@@ -10,11 +10,15 @@
 namespace SS;
 
 
+use SS\Server\HttpProxy;
 use Swoole\Server;
 
 class MultiServer
 {
-
+    /**
+     * MultiServer constructor.
+     * @param $configs array
+     */
     public function __construct($configs)
     {
         $mainConfig = $configs['main'];
@@ -30,27 +34,14 @@ class MultiServer
         foreach ($configs as $config) {
             $main->addlistener($config['host'], $config['port'], SWOOLE_SOCK_TCP);
         }
+        
+        $proxy = new HttpProxy();
 
-        $main->on('connect', [$this, 'onConnect']);
-        $main->on('receive', [$this, 'onReceive']);
-        $main->on('close', [$this, 'onClose']);
+        $main->on('connect', [$proxy, 'onConnect']);
+        $main->on('receive', [$proxy, 'onReceive']);
+        $main->on('close', [$proxy, 'onClose']);
+
+        $main->start();
     }
 
-    public function onConnect()
-    {
-        /** @var $server Server */
-        list($server, $fd, $fromId) = func_get_args();
-    }
-
-    public function onReceive()
-    {
-        /** @var $server Server */
-        list($server, $fd, $fromId, $receive) = func_get_args();
-    }
-
-    public function onClose()
-    {
-        /** @var $server Server */
-        list($server, $fd, $fromId) = func_get_args();
-    }
 }
