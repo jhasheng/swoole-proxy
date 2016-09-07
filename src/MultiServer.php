@@ -23,7 +23,7 @@ class MultiServer
     {
         $mainConfig = $configs['main'];
         unset($configs['main']);
-        $main = new Server($mainConfig['host'], $mainConfig['port'], $mainConfig['mode'], SWOOLE_SOCK_TCP);
+        $main = new Server($mainConfig['host'], $mainConfig['port'], SWOOLE_BASE, SWOOLE_SOCK_TCP);
 
         $main->on('start', function (Server $server) {
             foreach ($server->ports as $port) {
@@ -31,9 +31,9 @@ class MultiServer
             }
         });
 
-        foreach ($configs as $config) {
-            $main->addlistener($config['host'], $config['port'], SWOOLE_SOCK_TCP);
-        }
+//        foreach ($configs as $config) {
+//            $main->addlistener($config['host'], $config['port'], SWOOLE_SOCK_TCP);
+//        }
         
         $proxy = new HttpProxy();
 

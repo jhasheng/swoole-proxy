@@ -11,11 +11,19 @@ namespace SS;
 
 
 use Swoole\Client;
+use Zend\Diactoros\Request;
 
 class Agent
 {
     /**
      * @var Client
      */
-    protected $remote = null;
+    public $remote = null;
+
+    /**
+     * @var Request
+     */
+    public $request = null;
+    
+    public $https = false;
 }
