@@ -35,24 +35,25 @@
         var index = 1;
         window.onload = function () {
             var ws = new WebSocket('ws://192.168.56.1:10005');
+            ws.onopen = function () {
+                ws.send('register');
+            };
             ws.onmessage = function (receive) {
                 if (receive && receive.data) {
                     try {
-                        var body = JSON.parse(receive.data);
-                        var headers = atob(body['header']).split(/\n/);
-
+                        var headers = JSON.parse(atob(receive.data));
+                        console.log(headers);
                         if ($('tbody tr').size() == 100) {
                             $('tbody tr:last').remove();
                         }
-                        var info = headers[0].split(' ');
-                        var head = info[0];
-                        var protocol = info[2];
-                        var url = $.url(info[1]);
+                        var head = headers['method'];
+                        var protocol = 'HTTP';
+                        var url = $.url(headers['url']);
 
-                        var response = atob(body['response']).split(/\r\n/);
-                        var res = response[0].split(' ');
+//                        var response = atob(body['response']).split(/\r\n/);
+//                        var res = response[0].split(' ');
 
-                        var code = parseInt(res[1]);
+                        var code = headers['status'];
                         var length = 0;
                         var className = 'bs-callout bs-callout-active text-active';
                         if (code >= 200 && code < 300) {
@@ -65,21 +66,6 @@
                             className = 'bs-callout bs-callout-warning text-warning';
                         }
 
-
-                        for (var i in response) {
-                            if (length < 1 && code == 200) {
-                                length = body['length'];
-                                break;
-                            }
-                            if (response[i].indexOf("Content-Length") == 0) {
-                                length = response[i].split(': ').pop();
-                                break;
-                            }
-                            if (response[i].indexOf("Content-Type") == 0) {
-                                console.log(response[i])
-                            }
-                        }
-
                         var html = "<tr class='" + className + "'>" +
                                 "<td>" + index + "</td>" +
                                 "<td>" + head + "</td>" +
@@ -89,7 +75,7 @@
                         if (head == 'CONNECT') {
                             html += "<td colspan='3' style='text-align: center'><i class='glyphicon glyphicon-lock text-warning'></i></td>"
                         } else {
-                            html += "<td>" + body['ip'] + "</td>" +
+                            html += "<td>" + 0 + "</td>" +
                                     "<td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') + "</td>" +
                                     "<td align='left'>" + (length < 1024 ? (length + ' B') : ((length / 1024).toFixed(1)) + " KB") + "</td>";
                         }

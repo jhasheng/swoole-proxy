@@ -23,6 +23,7 @@ class SwooleWebSocket
 
         $ws->on('open', function(Server $server, $request) {
 //            var_dump($request->fd);
+            echo "server: handshake success with fd{$request->fd}\n";
         });
 
         $ws->on('message', function(Server $server, Frame $frame) {
@@ -39,6 +40,10 @@ class SwooleWebSocket
         $ws->on('close', function(Server $server) {
 //            echo json_encode($server->stats());
 //            echo PHP_EOL;
+        });
+
+        $ws->on('connect', function(Server $server) {
+            echo 'connect';
         });
 
         $ws->start();

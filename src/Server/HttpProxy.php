@@ -9,32 +9,49 @@
  */
 namespace SS\Server;
 
-use GuzzleHttp\Promise\Promise;
 use SS\Agent;
 use Swoole\Client;
 use Swoole\Server;
+use Swoole\WebSocket\Frame;
 use Zend\Diactoros\Request;
 use Zend\Diactoros\Response;
 
 class HttpProxy implements ServerInterface
 {
+    use AgentTrait;
+
     /**
-     * @var Agent[]
+     * @var \Swoole\Http\Client
      */
-    protected $agent = [];
+    public $websocket = null;
 
     public function onConnect()
     {
         /** @var $server \Swoole\Server */
         list($server, $fd, $fromId) = func_get_args();
-        $this->agent[$fd] = new Agent();
+        $this->setAgent(new Agent(), $fd);
+
+        if ($this->websocket == null) {
+            $websocket = new \Swoole\Http\Client('0.0.0.0', 10005);
+            $websocket->on('message', function (\Swoole\Http\Client $client, Frame $frame) {
+
+            });
+            $websocket->upgrade('/', function (\Swoole\Http\Client $client) use ($websocket) {
+                $this->websocket = $websocket;
+                $client->push('stat');
+            });
+
+            $websocket->on('connect', function (\Swoole\Http\Client $client) {
+                echo sprintf("connect websocket server success" . PHP_EOL);
+            });
+        }
     }
 
     public function onReceive()
     {
         /** @var $server \Swoole\Server */
         list($server, $fd, $fromId, $receive) = func_get_args();
-        $agent = $this->agent[$fd];
+        $agent = $this->getAgent($fd);
 
         if ($agent->remote) {
             $agent->remote->send($receive);
@@ -45,27 +62,24 @@ class HttpProxy implements ServerInterface
                     $info = explode(':', $host);
                 }
             });
-//            if (!$agent->https) {
-//                return $this->handleConnect($server, $fd, $receive);
-//            }
-//            $addr = explode(':', array_pop($agent->request->getHeader('host')));
-//            $host = $addr[0];
-//            $port = isset($addr[1]) ? $addr[1] : 80;
-//
-
         }
     }
 
     public function onClose()
     {
         /** @var $server \Swoole\Server */
-        list($server, $fd, $fromId) = func_get_args();
-        echo 'close' . $fd . PHP_EOL;
+//        list($server, $fd, $fromId) = func_get_args();
+//        echo 'close ==> ' . $fd . PHP_EOL;
     }
 
-    protected function initRemote(Server $server, $receive, $fd, $host, $port)
+    /**
+     * @param Server $server
+     * @param string $receive
+     * @param integer $fd
+     */
+    protected function initRemote(Server $server, $receive, $fd)
     {
-        $agent = $this->agent[$fd];
+        $agent = $this->getAgent($fd);
 
         $remote = new Client(SWOOLE_SOCK_TCP, SWOOLE_SOCK_ASYNC);
 
@@ -80,41 +94,56 @@ class HttpProxy implements ServerInterface
         });
 
         $remote->on('error', function (Client $client) {
-
+            echo sprintf("client %s error" . PHP_EOL, swoole_strerror($client->errCode));
         });
 
         $remote->on('close', function (Client $client) {
-
+//            echo sprintf("client close") . PHP_EOL;
         });
 
-        swoole_async_dns_lookup($host, function ($host, $ip) use ($remote, $port) {
-            $remote->connect($ip, $port);
+        swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($remote, $agent) {
+//            echo sprintf("[%s] ==> %s" . PHP_EOL, $host, $ip);
+            $remote->connect($ip, $agent->port);
         });
     }
 
     /**
+     * 解析HTTP请求头及HTTPS CONNECT 请求
+     *
      * @param Server $server
      * @param integer $fd
      * @param string $receive
      * @param callable $next
-     * @return bool
+     * @return mixed
      */
     protected function handleRequest(Server $server, $fd, $receive, callable $next)
     {
         try {
+            $agent   = $this->getAgent($fd);
             $request = Request\Serializer::fromString($receive);
-            $host = array_pop($request->getHeader('host'));
-            $info = explode(':', $host);
+            $host    = array_pop($request->getHeader('host'));
+
+//            echo "host ===> " . $request->getRequestTarget() . PHP_EOL;
+            $headers = $request->getHeaders();
+            $headers['method'] = $request->getMethod();
+            $headers['status'] = 200;
+            $headers['url'] = $request->getRequestTarget();
+            $this->websocket && $this->websocket->push(base64_encode(json_encode($headers)));
+
+            $info        = explode(':', $host);
+            $agent->host = $info[0];
+            $agent->port = $info[1] ?: 80;
             if ($request->getMethod() != 'CONNECT') {
-                $this->initRemote($server, $receive, $fd, $info[0], $info[1] ?: 80);
+                $this->initRemote($server, $receive, $fd);
                 return $next(20, $request);
             }
-            $response = new Response('php://temp', 200, ['User-Agent' => 'Swoole Proxy Server']);
+            $response = new Response('php://temp', 200, ['User-Agent' => 'Swoole Server']);
             $response->getBody()->write('welcome');
-            $this->initRemote($server, $receive, $fd, $info[0], $info[1] ?: 80);
+            $this->initRemote($server, $receive, $fd);
             return $next($server->send($fd, Response\Serializer::toString($response)), $request);
         } catch (\Exception $e) {
             return $next(21, $e->getMessage());
         }
     }
+
 }

@@ -25,5 +25,9 @@ class Agent
      */
     public $request = null;
     
+    public $host = null;
+    
+    public $port = null;
+    
     public $https = false;
 }
