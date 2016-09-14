@@ -10,9 +10,7 @@
     "keywords" : ["swoole", "proxy", "http", "https", "socks5", "mitm"],
     "require": {
         "ext-swoole": "1.8.*",
-        "league/climate": "^3.2",
-        "zendframework/zend-diactoros": "^1.3",
-        "guzzlehttp/promises": "^1.2"
+        "zendframework/zend-diactoros": "^1.3"
     },
     "autoload": {
         "psr-4": {

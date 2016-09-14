@@ -3,19 +3,17 @@
     <title>Swoole Request</title>
 
     <!-- 新 Bootstrap 核心 CSS 文件 -->
-    <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
 
     <!-- 可选的Bootstrap主题文件（一般不用引入） -->
-    <link rel="stylesheet" href="http://cdn.bootcss.com/bootstrap/3.3.5/css/bootstrap-theme.min.css">
+    <link rel="stylesheet" href="/css/bootstrap-theme.min.css">
 
-    <link rel="stylesheet" href="http://v3.bootcss.com/assets/css/docs.min.css">
-
-    <link href="//cdn.bootcss.com/font-awesome/4.6.3/css/font-awesome.min.css" rel="stylesheet">
+    <link href="/css/font-awesome.min.css" rel="stylesheet">
     <!-- jQuery文件。务必在bootstrap.min.js 之前引入 -->
-    <script src="./js/jquery.js"></script>
+    <script src="/js/jquery.js"></script>
 
-    <script src="//cdn.bootcss.com/jquery-url-parser/2.3.1/purl.min.js"></script>
-    <script src="//cdn.bootcss.com/Base64/1.0.0/base64.min.js"></script>
+    <script src="/js/purl.min.js"></script>
+    <script src="/js/base64.min.js"></script>
     <style>
         td {
             overflow: hidden;
@@ -34,59 +32,54 @@
     <script>
         var index = 1;
         window.onload = function () {
-            var ws = new WebSocket('ws://192.168.56.1:10005');
-            ws.onopen = function () {
-                ws.send('register');
-            };
+            var ws = new WebSocket('ws://192.168.56.1:10007');
             ws.onmessage = function (receive) {
-                if (receive && receive.data) {
-                    try {
-                        var headers = JSON.parse(atob(receive.data));
-                        console.log(headers);
-                        if ($('tbody tr').size() == 100) {
-                            $('tbody tr:last').remove();
-                        }
-                        var head = headers['method'];
-                        var protocol = 'HTTP';
-                        var url = $.url(headers['url']);
+                try {
+                    var headers = JSON.parse(receive.data);
+//                    console.log(headers);
+                    if ($('tbody tr').size() == 36) {
+                        $('tbody tr:last').remove();
+                    }
+                    var head = headers['method'];
+                    var protocol = 'HTTP';
+                    var url = $.url(headers['url']);
 
 //                        var response = atob(body['response']).split(/\r\n/);
 //                        var res = response[0].split(' ');
 
-                        var code = headers['status'];
-                        var length = 0;
-                        var className = 'bs-callout bs-callout-active text-active';
-                        if (code >= 200 && code < 300) {
-                            className = 'bs-callout bs-callout-success text-success';
-                        } else if (code >= 300 && code < 400) {
-                            className = 'bs-callout bs-callout-info text-info';
-                        } else if (code >= 400 && code < 500) {
-                            className = 'bs-callout bs-callout-danger text-danger';
-                        } else {
-                            className = 'bs-callout bs-callout-warning text-warning';
-                        }
-
-                        var html = "<tr class='" + className + "'>" +
-                                "<td>" + index + "</td>" +
-                                "<td>" + head + "</td>" +
-                                "<td>" + protocol + "</td>" +
-                                "<th>" + code + "</th>" +
-                                "<td title='" + url.attr('host') + "'>" + url.attr('host') + "</td>";
-                        if (head == 'CONNECT') {
-                            html += "<td colspan='3' style='text-align: center'><i class='glyphicon glyphicon-lock text-warning'></i></td>"
-                        } else {
-                            html += "<td>" + 0 + "</td>" +
-                                    "<td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') + "</td>" +
-                                    "<td align='left'>" + (length < 1024 ? (length + ' B') : ((length / 1024).toFixed(1)) + " KB") + "</td>";
-                        }
-
-                        html += "</tr>";
-
-                        $('tbody').prepend(html);
-                        index++;
-                    } catch (e) {
-                        console.log(e);
+                    var code = headers['status'];
+                    var length = 0;
+                    var className = 'bs-callout bs-callout-active text-active';
+                    if (code >= 200 && code < 300) {
+                        className = 'bs-callout bs-callout-success text-success';
+                    } else if (code >= 300 && code < 400) {
+                        className = 'bs-callout bs-callout-info text-info';
+                    } else if (code >= 400 && code < 500) {
+                        className = 'bs-callout bs-callout-danger text-danger';
+                    } else {
+                        className = 'bs-callout bs-callout-warning text-warning';
                     }
+
+                    var html = "<tr class='" + className + "'>" +
+                            "<td>" + index + "</td>" +
+                            "<td>" + head + "</td>" +
+                            "<td>" + protocol + "</td>" +
+                            "<th>" + code + "</th>" +
+                            "<td title='" + url.attr('host') + "'>" + url.attr('host') + "</td>";
+                    if (head == 'CONNECT') {
+                        html += "<td colspan='3' style='text-align: center'><i class='glyphicon glyphicon-lock text-warning'></i></td>"
+                    } else {
+                        html += "<td>" + 0 + "</td>" +
+                                "<td class='text-nowrap'><a target='_blank' href='" + url.attr('source') + "'>" + url.attr('relative') + "</td>" +
+                                "<td align='left'>" + (length < 1024 ? (length + ' B') : ((length / 1024).toFixed(1)) + " KB") + "</td>";
+                    }
+
+                    html += "</tr>";
+
+                    $('tbody').prepend(html);
+                    index++;
+                } catch (e) {
+                    console.log(e);
                 }
             };
 

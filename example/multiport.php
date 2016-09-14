@@ -11,7 +11,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 $server = new \SS\MultiServer(
     [
-        'main'      => ['host' => '0.0.0.0', 'port' => 10004, 'mode' => SWOOLE_BASE],
-        'monitor'   => ['host' => '0.0.0.0', 'port' => 8008],
-//        'websocket' => ['host' => '0.0.0.0', 'port' => 10005]
+        'main'      => ['host' => '0.0.0.0', 'port' => 10009, 'mode' => SWOOLE_BASE],
+        'monitor'   => ['host' => '0.0.0.0', 'port' => 10008],
+        'websocket' => ['host' => '0.0.0.0', 'port' => 10007]
     ]);

@@ -18,7 +18,7 @@ class Dashboard implements ServerInterface
     protected $local = [
         '127.0.0.1',
         '192.168.56.1',
-        //        'localhost'
+        'localhost'
     ];
 
     protected $route = [
@@ -57,7 +57,7 @@ class Dashboard implements ServerInterface
         ];
 
         $extension = pathinfo($target, PATHINFO_EXTENSION);
-        if (in_array($extension, ['js', 'css', 'ico'])) {
+        if (in_array($extension, ['js', 'css', 'ico', 'otf', 'eot', 'svg', 'ttf', 'woff', 'woff2'])) {
             $filePath = realpath($this->root . '/' . $target);
 
             switch ($extension) {

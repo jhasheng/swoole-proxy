@@ -12,7 +12,6 @@ namespace SS\Server;
 use SS\Agent;
 use Swoole\Client;
 use Swoole\Server;
-use Swoole\WebSocket\Frame;
 use Zend\Diactoros\Request;
 use Zend\Diactoros\Response;
 
@@ -31,18 +30,12 @@ class HttpProxy implements ServerInterface
         list($server, $fd, $fromId) = func_get_args();
         $this->setAgent(new Agent(), $fd);
 
-        if ($this->websocket == null) {
-            $websocket = new \Swoole\Http\Client('0.0.0.0', 10005);
-            $websocket->on('message', function (\Swoole\Http\Client $client, Frame $frame) {
-
-            });
+        if (!$this->websocket) {
+            $websocket = new \Swoole\Http\Client('0.0.0.0', 10007);
+            $websocket->on('message', function (\Swoole\Http\Client $client, $frame) {});
             $websocket->upgrade('/', function (\Swoole\Http\Client $client) use ($websocket) {
-                $this->websocket = $websocket;
                 $client->push('stat');
-            });
-
-            $websocket->on('connect', function (\Swoole\Http\Client $client) {
-                echo sprintf("connect websocket server success" . PHP_EOL);
+                $this->websocket = $websocket;
             });
         }
     }
@@ -57,10 +50,10 @@ class HttpProxy implements ServerInterface
             $agent->remote->send($receive);
         } else {
             $this->handleRequest($server, $fd, $receive, function ($status, $request) {
-                if (20 == $status && $request instanceof Request) {
-                    $host = array_pop($request->getHeader('host'));
-                    $info = explode(':', $host);
-                }
+//                if (20 == $status && $request instanceof Request) {
+//                    $host = array_pop($request->getHeader('host'));
+//                    $info = explode(':', $host);
+//                }
             });
         }
     }
@@ -102,7 +95,7 @@ class HttpProxy implements ServerInterface
         });
 
         swoole_async_dns_lookup($agent->host, function ($host, $ip) use ($remote, $agent) {
-//            echo sprintf("[%s] ==> %s" . PHP_EOL, $host, $ip);
+            echo sprintf("[%s] ==> %s" . PHP_EOL, $host, $ip);
             $remote->connect($ip, $agent->port);
         });
     }
@@ -121,18 +114,24 @@ class HttpProxy implements ServerInterface
         try {
             $agent   = $this->getAgent($fd);
             $request = Request\Serializer::fromString($receive);
-            $host    = array_pop($request->getHeader('host'));
+
+            $host    = $request->getHeader('host');
 
 //            echo "host ===> " . $request->getRequestTarget() . PHP_EOL;
             $headers = $request->getHeaders();
             $headers['method'] = $request->getMethod();
             $headers['status'] = 200;
             $headers['url'] = $request->getRequestTarget();
-            $this->websocket && $this->websocket->push(base64_encode(json_encode($headers)));
+            if ($this->websocket instanceof \Swoole\Http\Client) {
+                $this->websocket && $this->websocket->push(json_encode($headers));
+            } else {
+                var_dump($this->websocket);
+                echo PHP_EOL;
+            }
 
-            $info        = explode(':', $host);
+            $info        = explode(':', $host[0]);
             $agent->host = $info[0];
-            $agent->port = $info[1] ?: 80;
+            $agent->port = isset($info[1]) ? $info[1] : 80;
             if ($request->getMethod() != 'CONNECT') {
                 $this->initRemote($server, $receive, $fd);
                 return $next(20, $request);

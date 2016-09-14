@@ -13,7 +13,7 @@ use Zend\Diactoros\Response;
 
 class WebSocket
 {
-    const WS_MASK = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    const MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
     protected $backends = [];
 
@@ -21,11 +21,16 @@ class WebSocket
     {
         /** @var $server \Swoole\Server */
         list($server, $fd, $fromId) = func_get_args();
-        $backend             = new \stdClass();
-        $backend->handshake  = false;
-        $backend->isStat     = false;
-        $backend->fd         = $fd;
-        $this->backends[$fd] = $backend;
+        if (!isset($this->backends[$fd])) {
+            $backend             = new \stdClass();
+            $backend->fd         = $fd;
+            $backend->handshake  = false;
+            $backend->opcode     = -1;
+            $backend->data       = null;
+            $backend->except     = false;
+            $this->backends[$fd] = $backend;
+        }
+        echo sprintf("new client [%s] join" . PHP_EOL, $fd);
     }
 
     public function onReceive()
@@ -33,47 +38,33 @@ class WebSocket
         /** @var $server \Swoole\Server */
         list($server, $fd, $fromId, $receive) = func_get_args();
         $backend = $this->backends[$fd];
-//        echo $receive;
-        if (!$backend->handshake) {
-            $request = Request\Serializer::fromString($receive);
-            if ($request->getMethod() == 'CONNECT') {
-                $data = new Response('php://temp', 200);
-            } else {
-                echo sprintf("client %s handshake success" . PHP_EOL, $fd);
-//                echo $receive . PHP_EOL;
-                $key = array_pop($request->getHeader('Sec-WebSocket-Key'));
-                $key .= self::WS_MASK;
-                $response = new Response('php://temp', 101);
-                $response->getBody()->write(chr(0));
-                $data = $response->withHeader('Upgrade', 'websocket')->withHeader('Connection', 'Upgrade')->withHeader('Sec-WebSocket-Accept', base64_encode(sha1($key, true)));
-                $backend->handshake = true;
+        echo $fd . PHP_EOL;
+        if (!$backend) $server->close($fd);
+        // echo bin2hex($receive) . PHP_EOL;
+        if ($backend->handshake) {
+            $decode = $this->unwrap($receive);
+            if ('stat' == $decode['content']) {
+                $backend->except = true;
             }
-            $server->send($fd, Response\Serializer::toString($data));
+            foreach ($this->backends as $backend) {
+                if ($backend->except) continue;
+                $server->send($backend->fd, $this->wrap($decode['content']));
+            }
         } else {
-            $data = $this->handleData($receive);
-            echo $data . PHP_EOL;
-            if ($data == 'register') {
-                $backend->isStat = true;
-            }
+            preg_match('#Sec-WebSocket-Key:\s(?<key>[^\s].*?[^\s])#Ui', $receive, $matches);
+            $key       = $matches['key'];
+            $acceptKey = base64_encode(sha1($key . self::MAGIC_STRING, true));
+            $header    = [
+                "HTTP/1.1 101 Switching Protocols",
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                "Sec-WebSocket-Accept: {$acceptKey}"
+            ];
 
-//            foreach ($this->backends as $backend) {
-//                if (!$backend->isStat) continue;
-//                echo bin2hex($receive) . PHP_EOL;
-//                $server->send($backend->fd, "\x81\x01\x97");
-//            }
-//            if (false === $data) {
-//                echo $fd . " ==> " . ($receive) . PHP_EOL;
-//                $server->close($fd);
-//            } else {
-//                if ('stat' == $data) $backend->isStat = true;
-//                foreach ($this->backends as $backend) {
-//                    if ($backend->isStat) continue;
-//                    $data = $this->wrap($data);
-//                    $server->send($backend->fd, "\x81\x01\x97");
-//                    echo bin2hex($data) . PHP_EOL;
-//                    $server->send($backend->fd, $data);
-//                }
-//            }
+            $response           = implode("\r\n", $header) . "\r\n\r\n";
+            $backend->handshake = true;
+            echo sprintf("client [%s] handshake success" . PHP_EOL, $fd);
+            $server->send($fd, $response);
         }
     }
 
@@ -100,73 +91,69 @@ class WebSocket
         return pack("H*", $data);
     }
 
-    public function handleData($data)
+    protected function wrap($message, $opcode = 0x1, $end = true, $mask = false)
     {
-        $offset = 0;
+        $fin = $end ? 0x1 : 0x0;
 
-        $temp   = ord($data[$offset++]);
-        $FIN    = ($temp >> 7) & 0x1;
-        $RSV1   = ($temp >> 6) & 0x1;
-        $RSV2   = ($temp >> 5) & 0x1;
-        $RSV3   = ($temp >> 4) & 0x1;
-        $opcode = $temp & 0xf;
+        $data = chr(($fin << 7) | $opcode);
 
-//        echo "First byte: FIN is $FIN, RSV1-3 are $RSV1, $RSV2, $RSV3; Opcode is $opcode \n";
-//        if (0x08 == $opcode) return false;
+        $length = strlen($message);
 
-        $temp           = ord($data[$offset++]);
-        $mask           = ($temp >> 7) & 0x1;
-        $payload_length = $temp & 0x7f;
-        if ($payload_length == 126) {
-            $temp = substr($data, $offset, 2);
-            $offset += 2;
-            $temp           = unpack('nl', $temp);
-            $payload_length = $temp['l'];
-        } elseif ($payload_length == 127) {
-            $temp = substr($data, $offset, 8);
-            $offset += 8;
-            $temp           = unpack('nl', $temp);
-            $payload_length = $temp['l'];
-        }
-//        echo "mask is $mask, payload_length is $payload_length \n";
-
-        if ($mask == 0) {
-            $temp    = substr($data, $offset);
-            $content = '';
-            for ($i = 0; $i < $payload_length; $i++) {
-                $content .= $temp[$i];
-            }
+        if ($length <= 0x7d) {
+            $data .= chr((0x0 << 7) | $length);
+        } else if ($length >= 0x7f && $length <= 0xffff) {
+            $data .= chr((0x0 << 7) | 0x7e) . pack('n', $length);
+        } else if ($length > 0xffff && $length <= 0xffffffff) {
+            $data .= chr((0x0 << 7) | 0x7f) . pack('NN', 0, $length);
         } else {
-            $masking_key = substr($data, $offset, 4);
-            $offset += 4;
 
-            $temp    = substr($data, $offset);
-            $content = '';
-            for ($i = 0; $i < $payload_length; $i++) {
-                $content .= chr(ord($temp[$i]) ^ ord($masking_key[$i % 4]));
-            }
         }
-
-//        echo "content is $content \n";
-        return $content;
+        return $data . $message;
     }
 
-    protected function wrap($msg = "", $opcode = 0x1)
+    protected function unwrap($string)
     {
-        //默认控制帧为0x1（文本数据）
-        $firstByte  = 0x80 | $opcode;
-        $encodedata = null;
-        $len        = strlen($msg);
+        $fin     = ord(substr($string, 0, 1)) >> 7;
+        $opcode  = ord(substr($string, 0, 1)) & 0x0f;
+        $isMask  = ord(substr($string, 1, 1)) >> 7;
+        $payload = ord(substr($string, 1, 1)) & 0x7f;
 
-        if (0 <= $len && $len <= 125) {
-            $encodedata = chr(0x81) . chr($len) . $msg;
-        } else if (126 <= $len && $len <= 0xFFFF) {
-            $low        = $len & 0x00FF;
-            $high       = ($len & 0xFF00) >> 8;
-            $encodedata = chr($firstByte) . chr(0x7E) . chr($high) . chr($low) . $msg;
+        $offset = $length = 0;
+        if ($payload == 126) { // 0x7e
+            // 读取接下来的 16 位并转换为无符号整数，并作为长度。
+            $length = hexdec(bin2hex(substr($string, 2, 2)));
+            $offset = 4;
+        } else if ($payload == 127) { // 0x7f
+            // 读取接下来的 64 位并转换为无符号整数 (最高有效位必须为0)，并作为长度。
+            $length = hexdec(bin2hex(substr($string, 2, 8)));
+            $offset = 10;
+        } else if ($payload < 126) {
+            // 长度为当前值
+            $length = $payload;
+            $offset = 2;
+        } else {
+            //return false;
         }
 
-        return $encodedata;
+//        echo sprintf("client: FIN = %s, opcode = %s, mask = %s, length = %s" . PHP_EOL, $fin, $opcode, $isMask, $payload);
+
+        if ($opcode == 0x00) {
+            return ['opcode' => $opcode];
+        }
+
+        if ($isMask) {
+            $decode = "";
+            $mask = substr($string, $offset, 4);
+            $offset += 4;
+            $data = substr($string, $offset, $length);
+            for ($i = 0, $l = strlen($data); $i < $l; $i++) {
+                $decode .= chr(ord($data[$i]) ^ ord($mask[$i % 4]));
+            }
+        } else {
+            $data = substr($string, $offset, $length);
+            $decode = $data;
+        }
+        return ['opcode' => $opcode, 'content' => $decode];
     }
 
 }

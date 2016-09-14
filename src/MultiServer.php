@@ -52,6 +52,7 @@ class MultiServer
             } else if ($role == 'websocket') {
                 $websocket = new WebSocket();
                 $transport = $main->addlistener($config['host'], $config['port'], SWOOLE_SOCK_TCP);
+                $transport->set(['package_max_length' => 1024 * 1024 * 2]);
                 $transport->on('connect', [$websocket, 'onConnect']);
                 $transport->on('receive', [$websocket, 'onReceive']);
                 $transport->on('close', [$websocket, 'onClose']);
